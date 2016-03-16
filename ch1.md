@@ -18,7 +18,7 @@
 
 但在开始之前，我们必须深刻理解下什么是异步，以及如何在JS中实现。
 
-### 块状形式的程序
+### 块状形式的程序（A Program in Chunks）
 
 你可能在一个`.js`的文件中写JS程序，但是你的程序绝大多数是由几块组成的，只有一个是 *现在* 执行的，其余的是 *以后* 执行的。最常见的块单元是`function`。
 
@@ -94,7 +94,7 @@ console.log( "Meaning of life:", answer );
 
 任何时候把一段代码包裹到`function`，并指定到对应事件（定时器、鼠标单击、Ajax请求等）执行，你就创建了一个*以后*代码块，从而在程序中引入异步。
 
-### 异步 Console
+### 异步 Console（Async Console）
 
 没有规范或要求定义`console.*`方法是如何运行的--它们并不是JavaScript的官方部分，而是主机环境（译者注：如浏览器，服务端等）加入到JS当中的。
 
@@ -124,7 +124,7 @@ a.index++;
 
 **注意：** 如果你碰到这种很少见的情况，最好的选择时采用JS调试器的断点，而不是依赖`console`输出。另一个较好的方法是将查询的对象序列化为字符串，比如`JSON.stringify(...)`。
 
-### 事件轮询
+### 事件轮询（Event Loop）
 
 让我们小小抱怨一下：尽管允许异步JS代码（正如我们刚刚看到的timeout一样），直到最近（ES6），JS本身从来没有内建的直接表示异步的概念。
 
@@ -181,7 +181,7 @@ while (true) {
 
 **注意：** 我们之前提到的ES6改变了事件轮询队列的管理方法。它是一个正式的术语，但ES6指定了事件队列如何运行，从技术角度讲，它被纳入了JS引擎的范畴，而不仅仅是主机环境。这一改变的主要原因是ES6 Promises的引入，我们会在第三章讨论。因为他们需要能够对事件轮询队列的调度作直接、精细地控制（可见“协作”小节中`setTimeout(...0)`的讨论）
 
-### 多线程
+### 多线程（Parallel Threading）
 
 把“异步”和“并行”理解为一个东西的想法很常见，但它们其实一点都不同。记住，异步是关于*现在* 和 *以后* 的界限。但并行是允许事情能够同时发生。
 
@@ -286,4 +286,611 @@ JS从来不在线程间共享数据，这意味着不确定性不是大问题。
 因为JS是单线程的，`foo()`（和`bar()`）中的代码是原子性的，意思是一旦`foo()`开始运行，它的所有代码将会在`bar()`中任何代码执行前执行完，反之亦是如此。这就叫做“运行直至结束”。
 
 事实上，如果`foo()`和`bar()`的内部有更多代码时，run-to-completion语义更明显，比如：
+
+```javascript
+var a = 1;
+var b = 2;
+
+function foo() {
+    a++;
+    b = b * a;
+    a = b + 3;
+}
+
+function bar() {
+    b--;
+    a = 8 + b;
+    b = a * 2;
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", foo );
+ajax( "http://some.url.2", bar );
+```
+因为`bar()`无法中断`foo()`，并且`foo()`也无法中断`bar()`,这段代码只有两个可能的结果，取决于哪一个首先运行--假如有多线程的话，`foo()`和`bar()`中的语句就可能相互交叉，可能的结果就会急剧增加！
+
+块1是同步的（*现在* 发生），但是块2和3是异步的（*以后* 发生），这意味着它们的执行会被一个时间界限分隔开。
+
+块1：
+
+```javascript
+var a = 1;
+var b = 2;
+```
+
+块2（`foo()`）:
+
+```javascript
+a++;
+b = b * a;
+a = b + 3;
+```
+
+块3（`bar()`）：
+
+```javascript
+b--;
+a = 8 + b;
+b = a * 2;
+```
+
+块2和3都有可能第一个运行，因此这段程序可能有两个结果，如下：
+
+结果1：
+
+```javascript
+var a = 1;
+var b = 2;
+
+// foo()
+a++;
+b = b * a;
+a = b + 3;
+
+// bar()
+b--;
+a = 8 + b;
+b = a * 2;
+
+a; // 11
+b; // 22
+```
+
+
+
+结果2：
+
+```javascript
+var a = 1;
+var b = 2;
+
+// bar()
+b--;
+a = 8 + b;
+b = a * 2;
+
+// foo()
+a++;
+b = b * a;
+a = b + 3;
+
+a; // 183
+b; // 180
+```
+
+同一段代码有两种结果表明仍然有不确定性，但这是在函数（事件）级的顺序问题，不是在多线程时语句级（或者说是表达式操作级）的顺序问题。换句话说，这比多线程更具确定性。
+
+JS中这种函数顺序的非确定性行为通常称为“竞态”(race condition)，`foo()`和`bar()`会相互竞争，看谁先运行完。特别地，之所以称为“竞态”，是因为你无法可靠地预测`a`和`b`的结果会是怎样。
+
+**注意：** 如果JS中有一个函数，它并不是运行直至结束的（run-to-completion），我们可能得到更多的结果，对吗？ES6确实引入了这么个东西（详见第四章“生成器”），但别担心，我们回头会讲的！
+
+
+### 并发（Concurrency）
+
+想象一个显示状态更新的列表的站点（比如一个社交网络的消息提示），当用户向下滚动列表的时候，网站逐步加载内容。为了实现这一效果，（至少）需要同时（即在同一个时间窗口，并不一定要同一时刻）分别执行两个“进程”。
+
+**注意：** 此处我们在“进程”上使用了引号，因为这并不是计算机科学中的操作系统级的进程概念。这是虚拟进程，或者叫任务，代表了一个逻辑连接，序列化操作。相比于“任务”，我们更喜欢用“进程”，因为从术语层面来说，这更匹配我们所讨论的概念定义。
+
+当用户向下滚动页面以获取新内容时，第一个“进程”负责`onscroll`事件（发Ajax请求获取新内容）。第二个“进程”负责接收Ajax响应（把内容渲染到页面上）。
+
+很明显，如果用户快速滚动，在获取第一个响应并处理的时候，你会发现两个甚至更多的`onscroll`事件触发。因此，你会发现`onscroll`事件和Ajax响应事件相互交叉，快速地触发。
+
+并发是指两个或多个“进程”在同一时间段内同时执行，不管它们各自的操作是否是并行的（同一时刻在不同的处理器或者核心上）。相比于操作级并行（不同的处理器线程），你可以认为并发是“进程”级（或任务级）的并行。
+
+**注意：** 并发同样引入了一个可选的“多进程”交互的概念，之后会有所提及。
+
+对于一个给定的时间窗口（几秒钟，大概为用户的滚动时间），让我们将每个独立的“进程”想象为一系列事件/操作：
+
+“进程”1（`onscroll`事件）：
+
+```javascript
+onscroll, request 1
+onscroll, request 2
+onscroll, request 3
+onscroll, request 4
+onscroll, request 5
+onscroll, request 6
+onscroll, request 7
+```
+
+“进程”2（Ajax响应事件）：
+
+```javascript
+response 1
+response 2
+response 3
+response 4
+response 5
+response 6
+response 7
+```
+
+很可能一个`onscroll`时间和一个Ajax响应事件同时得到处理。例如，从时间轴角度想象一下这些事件：
+
+```javascript
+onscroll, request 1
+onscroll, request 2          response 1
+onscroll, request 3          response 2
+response 3
+onscroll, request 4
+onscroll, request 5
+onscroll, request 6          response 4
+onscroll, request 7
+response 6
+response 5
+response 7
+```
+
+但是，请回想一下本章前面部分提到的概念，JS在同一时刻只能处理一个事件，因此，要么`onscroll, request 2`先发生，要么`response 1`先发生，它们不可能在同一时刻发生。就像一个学校自助餐厅的孩子们一样，不论在门外挤成什么样，他们都不得不排成队来吃午餐!
+
+让我们把所有这些事件想象为事件轮询队列。
+
+事件轮询队列：
+
+```javascript
+onscroll, request 1   <--- Process 1 starts
+onscroll, request 2
+response 1            <--- Process 2 starts
+onscroll, request 3
+response 2
+response 3
+onscroll, request 4
+onscroll, request 5
+onscroll, request 6
+response 4
+onscroll, request 7   <--- Process 1 finishes
+response 6
+response 5
+response 7            <--- Process 2 finishes
+```
+
+“进程1“和”进程2“并发运行（任务级并行），但它们各自的事件在事件队列中序列化运行。
+
+顺便提一句，注意到`response 6`和`response 5`是怎么没有按照预期顺序返回的吗？
+
+单线程事件轮询是并发的一种表现形式（当然还有其它形式，后面会提及）。
+
+### 非交互（Noninteracting）
+
+尽管在同一个程序中，两个或更多的”进程“并发地插入各自的步骤/事件，但如果任务不相关，它们没必要交互。**如果它们不交互，非确定性完全可以接受**。
+
+例如：
+
+```javascript
+var res = {};
+
+function foo(results) {
+    res.foo = results;
+}
+
+function bar(results) {
+    res.bar = results;
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", foo );
+ajax( "http://some.url.2", bar );
+```
+
+`foo()`和`bar()`是两个并发”进程“，无法确定哪一个先触发。但我们构建的这个程序，不管哪个先触发都没关系，因为它们是相互独立的，不需要交互。
+
+这不是个”竞态“bug，因为不论顺序如何，代码都能正常工作。
+
+### 交互（Interaction）
+
+更多情况下，间接地通过作用域和/或DOM，并发”进程“有必要交互。当发生这种交互的时候，你需要协调这些交互来阻止之前提到的”竞态“。
+
+以下是一个由于潜在顺序问题，两个并发”进程“交互的简单例子，有时可能导致程序异常：
+
+```javascript
+var res = [];
+
+function response(data) {
+    res.push( data );
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", response );
+ajax( "http://some.url.2", response );
+```
+
+并发”进程“是两个`response()`调用，用来处理Ajax响应。它们谁都可能先发生。
+
+我们假定预期的结果是`res[0]`保存了`http://some.url.1`调用返回的结果，`res[1]`保存了`http://some.url.2`调用返回的结果。有时是这样，但有时结果完全反过来，依谁先完成而定。这一不确定性很像一个”竞态“bug。
+
+**注意：** 在类似这种情形下，作出假设前一定要谨慎。例如，或许根据处理的任务（比如数据库任务或者其它抓取静态文件任务），开发人员注意到`http://some.url.2`的响应”总是“比`http://some.url.1`慢，因此，观测的结果总是和预期的顺序一致，这很常见。即使两个请求发向了同一个服务器，并且服务器按照特定顺序返回了响应，也不能保证返回浏览器的响应的顺序。
+
+因此，为了处理这种竞态，你可以协调下有序交互：
+
+```javascript
+var res = [];
+
+function response(data) {
+    if (data.url == "http://some.url.1") {
+        res[0] = data;
+    }
+    else if (data.url == "http://some.url.2") {
+        res[1] = data;
+    }
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", response );
+ajax( "http://some.url.2", response );
+```
+
+不管哪个Ajax响应先返回，我们检查`data.url`（当然，可以假定是从服务器端返回的），确定响应数据应该占据`res`数组的哪个位置。`res[0]`永远存放着`http://some.url.1`的结果，`res[1]`永远存放着`http://some.url.2`的结果。通过简单的协调，我们消除了竞态不确定性。
+
+同样的道理，如果多个并发函数通过共享DOM交互调用，比如，其中一个更新`<div>`的内容，其它的更新`<div>`的样式或者属性（比如，一旦有内容，则让DOM元素可见）。你可能不想在有内容前显示DOM元素，因此协调必须确保合适的交互顺序。
+
+没有协调交互的话，一些并发场景总是会导致异常（不只是有时）。考虑如下：
+
+```javascript
+var a, b;
+
+function foo(x) {
+    a = x * 2;
+    baz();
+}
+
+function bar(y) {
+    b = y * 2;
+    baz();
+}
+
+function baz() {
+    console.log(a + b);
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", foo );
+ajax( "http://some.url.2", bar );
+```
+
+在这个例子当中，不论`foo()`和`bar()`谁先触发，总会导致`baz()`过早运行（`a`或者`b`总有一个是`undefined`）,但在第二次调用`baz()`时就正常了，因为`a`和`b`都有值了。
+
+有不同方法可以处理这种情况，以下是个简单的方式：
+
+```javascript
+var a, b;
+
+function foo(x) {
+    a = x * 2;
+    if (a && b) {
+        baz();
+    }
+}
+
+function bar(y) {
+    b = y * 2;
+    if (a && b) {
+        baz();
+    }
+}
+
+function baz() {
+    console.log( a + b );
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", foo );
+ajax( "http://some.url.2", bar );
+```
+
+`baz()`外围的`if (a && b)`条件一般称为”门（gate）“，因为不确定`a`和`b`的到达顺序，但可以等到门打开（调用`baz()`）时，两个都到达。
+
+另一个可能碰到的并发交互情形有时称为”竞争（race）“，更确切地应该叫”闩（latch）“。它的特点是”只有第一个赢“。此时，非确定性是可以接受的，你明确地说明了”竞争“直至终点，只产生一个胜者是OK的。
+
+考虑如下异常代码：
+
+```javascript
+var a;
+
+function foo(x) {
+    a = x * 2;
+    baz();
+}
+
+function bar(x) {
+    a = x / 2;
+    baz();
+}
+
+function baz() {
+    console.log( a );
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", foo );
+ajax( "http://some.url.2", bar );
+```
+
+无论哪一个（`foo()`或者`bar()`）后触发，不仅会重写另一个对`a`的赋值，而且会重复调用`baz()`（这是我们不希望看到的）。
+
+因此，我们可以采用一个简单的闩来协调交互，只让第一个通过：
+
+```javascript
+var a;
+
+function foo(x) {
+    if (a == undefined) {
+        a = x * 2;
+        baz();
+    }
+}
+
+function bar(x) {
+    if (a == undefined) {
+        a = x / 2;
+        baz();
+    }
+}
+
+function baz() {
+    console.log( a );
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", foo );
+ajax( "http://some.url.2", bar );
+```
+
+`if (a == undefined)`条件语句只允许`foo()`和`bar()`中的第一个通过，第二个（以及其后所有的）调用会被忽略。
+
+**注意：** 在所有这些场景中，为便于说明，我们一直采用全局变量，但并没有理由一定要这样做。只要相关的函数能够访问变量（通过作用域），同样能运行的很好。依赖词法作用域变量，即此处的全局变量，是这些并发协调形式的一个明显缺点。随着我们深入之后的几章，会看到其它一些更简洁的形式。
+
+### 协作（Cooperation）
+
+另一种并发协调的表现形式是”并发协作“。此处的关注点不是通过作用域的值共享进行交互（尽管仍然允许！），而是运行一个长时的”进程“，并将其分成几步或几个批次，使得其它的并发”进程“有机会把他们的操作插入到事件轮询队列中。
+
+例如,假设有一个AJax响应处理函数，需要遍历一长串结果以改变值。此处为保持代码简洁，我们采用`Array#map(..)`：
+
+```javascript
+var res = [];
+
+// `response(..)` receives array of results from the Ajax call
+function response(data) {
+    // add onto existing `res` array
+    res = res.concat(
+        // make a new transformed array with all `data` values doubled
+        data.map( function(val){
+            return val * 2;
+        } )
+    );
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", response );
+ajax( "http://some.url.2", response );
+```
+
+如果`"http://some.url.1"`首先返回结果，整个结果会马上映射到`res`中去。如果只是几千或者更少的数据，这通常不是个大问题。但如果有1000万条数据，可能需要花上一段时间（一台性能强劲的笔记本可能要几秒钟，移动设备就更长了）。
+
+当这样一个”进程“运行的时候，页面上的其它东西都会停止，包括其它`response(..)`调用、UI更新，更不用说像滚动、输入、按钮点击以及诸如此类的用户事件了。那真痛苦。
+
+因此，为了让并发系统协作性更好，可以采用一种更友好并且不会霸占事件轮询队列的方式，你可以采用异步批次的方式处理这些数据。在每个批次被推入事件队列后，让其它批次等待事件发生。
+
+以下是一个非常简单的方法;
+
+```javascript
+var res = [];
+
+// `response(..)` receives array of results from the Ajax call
+function response(data) {
+    // let's just do 1000 at a time
+    var chunk = data.splice( 0, 1000 );
+
+    // add onto existing `res` array
+    res = res.concat(
+        // make a new transformed array with all `chunk` values doubled
+        chunk.map( function(val){
+            return val * 2;
+        } )
+    );
+
+    // anything left to process?
+    if (data.length > 0) {
+        // async schedule next batch
+        setTimeout( function(){
+            response( data );
+        }, 0 );
+    }
+}
+
+// ajax(..) is some arbitrary Ajax function given by a library
+ajax( "http://some.url.1", response );
+ajax( "http://some.url.2", response );
+```
+
+我们把数据集分成每个最大1000项的数据块进行处理。这样，我们能够确保一个短时的”进程“，即使这意味着有更多的”进程“随之而来。将这些”进程“插入到事件轮询队列能够让我的网站/应用响应性更好，性能更佳。
+
+当然，我们没有协调交互来控制这些”进程“的顺序，因此结果的顺序也是不可预测的。如果顺序是必须的，你可以采用之前讨论的交互技术，或者下一章中我们会讲的技术。
+
+我们采用`setTimeout(..0)`(hack)进行异步调度，这仅仅意味着”把这个函数插入到事件轮询队列的末尾“。
+
+**注意：** 技术上来说，`setTimeout(..0)`并不会直接把任务项插入到事件轮询队列中，定时器会在下次机会中插入事件。例如，两个先后`setTimeout(..0)`的调用并不能严格保证按照调用顺序得到处理。所以，可能看到各种各样的情形，比如定时器漂移，这样事件的顺序是不可预测的。在Node.js中，有一个类似的方法叫`process.nextTick(..)`。尽管很方便（通常性能也更好），但没有一个直接、横跨所有环境的确保异步事件顺序的方式（至少目前如此）。在下一节中，我们会讨论更多关于这个话题的细节。
+
+### 作业（Jobs）
+
+ES6中，除了事件队列以外，还有一个新概念，叫”作业队列“（Job queue）。你最有可能在Promises的异步行为中（详见第三章）接触到这一概念。
+
+不幸的是，此时，它只是一个没有外露接口的机制，因此，证明它可能有点复杂。因此，我们只从概念上描述它，以便当我们在第三章讨论Promises的异步行为时，你能够理解这些操作是怎样调度和处理的。
+
+因此，我认为对”作业队列“理解的最好方式是，它是一个挂载在事件轮询队列中每个tick的末尾的队列。某些可能在事件队列的tick期间发生的潜在异步操作并不会导致一个完整的新事件插入到事件轮询队列中，而是在当前tick的作业队列末尾加入一个项目（即作业）。
+
+就好像说：”哦，我这儿有个需要之后处理的其它东西，但确保在其它事情发生之前立即发生“。
+
+或者，打个比方：事件队列就像游乐场的过山车，一旦你玩过一次，你必须到队尾去排队。而作业队列就像一旦你玩结束了，之后插队又继续玩了。
+
+一个作业可能引发更多的作业插入到同一队列的末尾。因此，从理论上来说，一个作业”循环“（一个作业不断地加入另一个作业）很可能无限延伸，因而导致程序无法移到下一个事件循环tick中。从概念上来说，这跟一个长时运行或者无限循环（比如`while(true)...`）几乎一模一样。
+
+作业有点像`setTimeout(..0)`hack，但是能够更好地定义和确保顺序：**以后，但尽可能快点**。
+
+假设一个调度Jobs（直接的，没有采用hacks）的API，叫做`schedule(..)`，如下：
+
+```javascript
+console.log( "A" );
+
+setTimeout( function(){
+    console.log( "B" );
+}, 0 );
+
+// theoretical "Job API"
+schedule( function(){
+    console.log( "C" );
+
+    schedule( function(){
+        console.log( "D" );
+    } );
+} );
+```
+
+你可能认为会输出`A B C D`，但其实是输出`A C D B`，因为作业是在当前事件轮询tick的末尾发生的，而定时器触发时，是调度到下一个事件轮询tick的（如果存在的话）。
+
+在第三章，我们将会看到，Promises的异步行为是基于Jobs的，因此有必要搞清楚它和事件轮询的关系。
+
+### 语句排序（Statement Ordering）
+
+我们代码中写的语句顺序并不一定和JS引擎执行的顺序一致。这一论断看起来似乎有点奇怪，那么我们简单地看下。
+
+但在开始之前，我们应该搞清楚一些事情：从程序角度而言，语言的规则/语法为语句排序决定了代码的行为是可预测的和可信赖的。因此，我们所讨论的**不是你在JS程序中能观察到的东西**。
+
+**警告：** 如果你能观察到编译器语句重排，就像我们将要举例说明的那样，这很明显违背了规范的要求，毫无疑问会是JS引擎的一个大bug--一个应该立即报告并修复的bug！但是当那就是你程序中的一个bug时（比如一个”竞态“），你怀疑JS引擎发生了一些不可思议的事情，这非常普遍--因此，首先看看是不是重排导致的问题，仔细看。采用JS调试器，设置断点，一行行单步跟踪代码，会成为你揪出代码中这一类bug最强有力的工具。
+
+如下：
+
+```javascript
+var a, b;
+
+a = 10;
+b = 30;
+
+a = a + 1;
+b = b + 1;
+
+console.log( a + b ); // 42
+```
+
+这段代码没有异步操作（除了之前提到的`console`异步I/O），因此最有可能的假设是它会从头到尾一行行地执行。
+
+但很可能在JS引擎编译完这段代码后（是的，JS会编译），发现重排（安全地）一下代码可能让执行速度更快些。本质而言，只要你看不到这种重排，任何事情都是焦点（译者注：大概意思是关注点就不在重排上了）。
+
+例如，引擎发现像这样执行代码也许更快些：
+
+```javascript
+var a, b;
+
+a = 10;
+a++;
+
+b = 30;
+b++;
+
+console.log( a + b ); // 42
+```
+
+或者这样：
+
+```javascript
+var a, b;
+
+a = 11;
+b = 31;
+
+console.log( a + b ); // 42
+```
+
+甚至：
+
+```javascript
+// because `a` and `b` aren't used anymore, we can
+// inline and don't even need them!
+console.log( 42 ); // 42
+```
+
+在以上所有情况当中，JS引擎在编译阶段进行安全的优化，最终的结果一样。
+
+但是有一种情况下，这种特定的优化坑能不安全，因而不允许这样（当然，并不是说一点都不优化）：
+
+```javascript
+var a, b;
+
+a = 10;
+b = 30;
+
+// we need `a` and `b` in their preincremented state!
+console.log( a * b ); // 300
+
+a = a + 1;
+b = b + 1;
+
+console.log( a + b ); // 42
+```
+
+其它因编译器重排导致副作用的例子（因此也必须禁止）可能包括一些像具有副作用的函数调用（尤其是getter函数），或者ES6的Proxy对象。
+
+考虑如下代码：
+
+```javascript
+function foo() {
+    console.log( b );
+    return 1;
+}
+
+var a, b, c;
+
+// ES5.1 getter literal syntax
+c = {
+    get bar() {
+        console.log( a );
+        return 1;
+    }
+};
+
+a = 10;
+b = 30;
+
+a += foo();             // 30
+b += c.bar;             // 11
+
+console.log( a + b );   // 42
+```
+
+要不是因为`console.log(..)`语句（仅是为了说明这种可观测的副作用而采用的简便形式），如果乐意（谁知道它是否会呢），JS引擎早把代码重排成这样了：
+
+```javascript
+// ...
+
+a = 10 + foo();
+b = 30 + c.bar;
+
+// ...
+```
+
+谢天谢地，尽管JS语法能够让我们免于遭受编译器语句重排带来的噩梦困扰，但理解编写的源码（至上而下的方式）和实际编译后执行的方式之间的联系有多薄弱是十分重要的。
+
+编译器语句重排是并发和交互（interaction）的微隐喻。作为一个普遍概念，这一意识能够帮助你更好地理解JS代码的异步流问题。
+
+
+
 
