@@ -301,9 +301,9 @@ ajax( "..", function(..){
 
 在JS主程序的控制下，`// A`和`// B`*现在*执行，但是`// C`推迟到*以后*执行，而且是在第三方的控制之下--这里指`ajax(..)`函数。一般来说，这种交出控制权的方式不会出现太大问题。
 
-尽管很少出问题，但不要被骗了，以为交出控制权不是大问题。实际上，这是以回调为驱动的设计最糟糕（也是最微妙）的问题之一。有时，`ajax(..)`（即你把回调交给的一方）并不是你写的或直接控制的函数。很多时候，是由第三方提供的公用程序。
+尽管很少出问题，但不要被骗了，以为交出控制权不是大问题。实际上，这是以回调为驱动的设计最糟糕（也是最微妙）的问题之一。有时，`ajax(..)`（即你把回调交给的一方）并不是你写的或直接控制的函数。很多时候，是由第三方提供的实体程序。
 
-当你把程序的部分执行控制权交给第三方时，我们称之为“控制反转”。在你的代码和第三方公用程序间存在着一种无以言表的“契约”--一些你想维护的东西。
+当你把程序的部分执行控制权交给第三方时，我们称之为“控制反转”。在你的代码和第三方实体程序间存在着一种无以言表的“契约”--一些你想维护的东西。
 
 ### 五个回调的故事(Tale of Five Callbacks)
 
@@ -330,7 +330,7 @@ analytics.trackPurchase( purchaseData, function(){
 
 你甚至不记得写过的代码。但是你回头仔细查看，到底哪出问题了。
 
-在查看了一些日志后，你得出结论，唯一的解释就是公用分析程序不知什么原因调用了五次回调函数，而不是一次。他们的文档中从没提过这事。
+在查看了一些日志后，你得出结论，唯一的解释就是实体分析程序不知什么原因调用了五次回调函数，而不是一次。他们的文档中从没提过这事。
 
 你很沮丧，联系了他们的客服，他们当然和你一样吃惊。他们同意上报给他们的开发人员，并且许诺很快给你回复。第二天，你收到一个很长的邮件，邮件中解释了他们的发现，然后你把它呈递给你的老板。
 
@@ -364,7 +364,258 @@ analytics.trackPurchase( purchaseData, function(){
 + 太晚调用（或者从不调用）
 + 调用太少或者太多次（就像你遇到的问题！）
 + 无法向回调函数传递任何必要的环境/参数
-+ 可能发生的错误/异常
++ 掩饰可能发生的错误/异常（译者注：即有异常却不报出来）
++ ...
+
+好麻烦的一长串列表，确实是这样。你可能慢慢意识到需要在每个单独的回调（传入到你不确定是否能相信的实体程序中去）当中写大量专门的代码，好痛苦。
+
+现在你对“地狱回调”的理解更深一层了。
+
+### 不只是别人的代码（Not Just Others' Code）
+
+此时，可能有人会怀疑，我所说的这种情况是否是个大问题。或许你不怎么和第三方公用程序打交道。或许你使用的是版本化的API或者自托管的库，因此程序的行为不会被除你之外的人改变。
+
+那么，仔细想想：你真的能相信你理论上控制的实体程序吗（在你自己的代码库中）？
+
+这样想想：为了减少意外问题，我们绝大多数都会在一定程度上在函数内部对输入参数作一些防御性检查。
+
+过度信任输入值：
+
+```javascript
+function addNumbers(x,y) {
+    // + is overloaded with coercion to also be
+    // string concatenation, so this operation
+    // isn't strictly safe depending on what's
+    // passed in.
+    return x + y;
+}
+
+addNumbers( 21, 21 );   // 42
+addNumbers( 21, "21" ); // "2121"
+```
+
+防范不信任的输入：
+
+```javascript
+function addNumbers(x,y) {
+    // ensure numerical input
+    if (typeof x != "number" || typeof y != "number") {
+        throw Error( "Bad parameters" );
+    }
+
+    // if we get here, + will safely do numeric addition
+    return x + y;
+}
+
+addNumbers( 21, 21 );   // 42
+addNumbers( 21, "21" ); // Error: "Bad parameters"
+```
+
+或许在安全的基础上更友好一点：
+
+```javascript
+function addNumbers(x,y) {
+    // ensure numerical input
+    x = Number( x );
+    y = Number( y );
+
+    // + will safely do numeric addition
+    return x + y;
+}
+
+addNumbers( 21, 21 );   // 42
+addNumbers( 21, "21" ); // 42
+```
+
+然而，当你着手这么做的时候，你会发现这些对函数输入的检查/规范化相当常见，甚至在理论上我们完全相信的代码中。从粗浅的意义上来说，这种编程等价于地缘政治学中的“信任但要验证”的原则。
+
+那么，很显然，我们在包含异步函数回调的的程序中也该这么做，不仅仅是外部代码，还有我们通常认为“在我们控制之下”的代码，不是吗？**当然是的。**
+
+但回调几乎没有提供任何东西来帮助我们。我们必须自己构建所有的检查机制，最终都是一些在每个回调中不断重复的样板/开销。
+
+回调最令人头疼的问题是*控制权反转*，这导致了所有这些信任的完全崩溃。
+
+如果你的代码中使用了回调，特别是有第三方实体程序的，如果对*控制权反转*信任问题没有作一些缓和逻辑控制，你的代码中就有bug了，即使它现在可能不出现。潜在的bug还是bug。
+
+确实是地狱。
+
+### 试图拯救回调（Trying to Save Callbacks）
+
+有几种回调设计试图解决我们提到的部分（不是全部）信任问题。拯救回调免于自我崩溃是勇敢但注定失败的尝试。
+
+例如，关于更优雅的错误处理，一些API设计提供了分离式回调（一个是成功回调，一个是错误回调）：
+
+```javascript
+function success(data) {
+    console.log( data );
+}
+
+function failure(err) {
+    console.error( err );
+}
+
+ajax( "http://some.url.1", success, failure );
+```
+
+采用这种方式设计的API中，通常`failure()`是可选的，如果没有提供，则假定你想掩盖这个错误。呃。
+
+**注意：** ES6 Promise API采用这这种分离式回调的设计。在下一章我们会详细讨论ES6 Promises。
+
+另一种常用的回调模式称为“错误优先类型”（有时叫做“Node类型”，因为这是几乎所有Node.js API的约定形式），其中，回调函数的第一个参数保留用作错误对象（如果有的话）。如果成功，这个参数就为空/falsy(译者注：指能转化为false)（之后的参数都是成功数据），如果有错误，则设为第一个参数/truthy（译者注：指能转化为true）（通常只有该错误对象没有其它参数传入）：
+
+```javascript
+function response(err,data) {
+    // error?
+    if (err) {
+        console.error( err );
+    }
+    // otherwise, assume success
+    else {
+        console.log( data );
+    }
+}
+
+ajax( "http://some.url.1", response );
+```
+
+以上两种情况，有几点需要注意：
+
+首先，并没有真正解决可能出现的大多数信任问题。对回调函数不需要的重复调用操作既没有阻止，也没有过滤。另外，情况变得更糟了，你可能同时获得成功和失败信号，或者一个都得不到，你仍然需要针对这些情况写一些额外代码。
+
+另外，一个不可忽略的事实是，尽管这是一个你可以采用的标准模式，但它肯定更冗长并且样板化，没法进行太多的复用。因此，在应用程序的每个回调中，你需要不厌其烦地编写那些代码。
+
+那从不调用这一信任问题呢？如果这是个问题（并且应该是个问题！），你可能需要设置一个定时器来取消事件。你可以写个实体函数（仅作概念展示）来帮助你处理这个问题：
+
+```javascript
+function timeoutify(fn,delay) {
+    var intv = setTimeout( function(){
+            intv = null;
+            fn( new Error( "Timeout!" ) );
+        }, delay )
+    ;
+
+    return function() {
+        // timeout hasn't happened yet?
+        if (intv) {
+            clearTimeout( intv );
+            fn.apply( this, [ null ].concat( [].slice.call( arguments ) ) );
+        }
+    };
+}
+```
+
+以下是如何使用：
+
+```javascript
+// using "error-first style" callback design
+function foo(err,data) {
+    if (err) {
+        console.error( err );
+    }
+    else {
+        console.log( data );
+    }
+}
+
+ajax( "http://some.url.1", timeoutify( foo, 500 ) );
+```
+
+另一个信任问题称为“太早调用”。在具体应用方面，可能会在某些重要任务完成之前就被调用。但更通常来说，这个问题等价于实体程序中*现在*（同步）或者*以后*（异步）运行你提供的回调函数。
+
+这种同步或异步不定的行为总是使得bug难以追踪。在某些圈子中，采用科幻世界中的精神诱导怪兽Zalgo来描述同步/异步噩梦。“不要释放Zalgo！”是很常见的诉求，听起来好像是建议：总是异步调用回调函数，即使是在下一个事件轮询中“立即”执行的，这样所有的回调函数都是异步的。
+
+**注意：**若想获取更多关于Zalgo的信息，请看Oren Golan的“Don't Release Zalgo!”（[https://github.com/oren/oren.github.io/blob/master/posts/zalgo.md](https://github.com/oren/oren.github.io/blob/master/posts/zalgo.md)）（译者注：原文好像已经不存在了）和 Isaac Z. Schlueter的“异步接口设计”（[http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony](http://blog.izs.me/post/59142742143/designing-apis-for-asynchrony)）。
+
+考虑如下：
+
+```javascript
+function result(data) {
+    console.log( a );
+}
+
+var a = 0;
+
+ajax( "..pre-cached-url..", result );
+a++;
+```
+
+这段代码会输出`0`(同步回调调用)还是`1`(异步回调调用)？根据...情况。
+
+从这你就可以看到Zalgo的不确定性对任一JS程序造成的威胁。因此，“不要释放Zalgo”听起来有点愚蠢，但是这是一个非常常见且可靠的建议。总是采用异步。
+
+要是你不知道所涉及的API是否是异步执行的呢？你可以写个实体函数如`asyncify(..)`,仅作概念展示：
+
+```javascript
+function asyncify(fn) {
+    var orig_fn = fn,
+        intv = setTimeout( function(){
+            intv = null;
+            if (fn) fn();
+        }, 0 )
+    ;
+
+    fn = null;
+
+    return function() {
+        // firing too quickly, before `intv` timer has fired to
+        // indicate async turn has passed?
+        if (intv) {
+            fn = orig_fn.bind.apply(
+                orig_fn,
+                // add the wrapper's `this` to the `bind(..)`
+                // call parameters, as well as currying any
+                // passed in parameters
+                [this].concat( [].slice.call( arguments ) )
+            );
+        }
+        // already async
+        else {
+            // invoke original function
+            orig_fn.apply( this, arguments );
+        }
+    };
+}
+```
+
+可以这样使用`asyncify(..)`：
+
+```javascript
+function result(data) {
+    console.log( a );
+}
+
+var a = 0;
+
+ajax( "..pre-cached-url..", asyncify( result ) );
+a++;
+```
+
+不管Ajax请求是在缓存中，进而试图立即调用回调函数，还是必须从远端获取之后异步执行，这段代码总是输出`1`而不是`0`--`result(..)`不得不异步执行，这就意味着`a++`有机会在`result(..)`之前运行。
+
+耶，另一个信任问题“解决了”！但很低效，更多的样板代码是的你的项目臃肿不堪。
+
+这就是一遍一遍采用回调函数的故事。回调可以很好地完成你的任何所需，但需要花很大功夫，并且这份努力通常比你应该花费的要多得多。
+
+你可能希望有内建的API或者其它语言机制来处理这个问题。最终，ES6来到幕前，给出了解决方案，那么继续往下读！
+
+**回顾**（Review）
+
+回调是JS中重要的异步编程单元。但随着JS的日趋成熟，回调函数并不足以支持异步编程的演进。
+
+首先。我们的大脑是以序列化、阻塞性、单线程（从语义上来说）的方式计划事情的，但是回调函数是以非线性、非序列化的方式表达异步流的，这使得推演代码更困难。会产生糟糕bug的代码不利于推演代码。
+
+我们需要以一种更同步、序列化、阻塞性的方式来表达异步，就像我们大脑所做的那样。
+
+其次，更重要的一点是，回调深受*控制权反转*之害，因为控制权会隐式地转给其它方（通常是一个不受你控制的第三方实体程序！）来继续运行程序的*续集*。这种控制权反转给我们造成了一系列信任问题，比如回调函数的调用次数是否超过了我们的预期。
+
+可以通过写些专门的代码来解决信任问题，但它本不应该这么困难，同时，也使得代码更加臃肿且难于维护。直到你碰到bug时你才觉得防护工作做得不够。
+
+对于**所有这些问题**，我们需要一个通用的解决方案,一个一旦创建就可以被多个回调复用，不需要额外样板开销的解决方案。
+
+我们需要一些比回调更好的东西。迄今为止，回调表现得还行，但JS的未来需要更复杂和更强大的异步模式。本书的下一章将会讨论那些新出现的演进。
+
+
+
 
 
 
