@@ -555,7 +555,7 @@ Promise.race( [
 
 重要的是，我们可以确保有一个信号作为`foo()`的结果，防止我们的程序被无限地挂起。
 
-### 调用太少或太多次
+### 调用太少或太多次（Calling Too Few or Too Many Times）
 
 从定义上看，就是回调被调用的次数。“太少”就是零调用，和我们之前说过的“从不”一个意思。
 
@@ -607,7 +607,318 @@ p.then(
 
 这是个重要的细节，因为能够有效地解决另一个潜在的Zalgo情形，即错误可能创建一个同步的响应而非错误则是异步的。Promise甚至把JS异常也转为异步的了，因此能够及大地减少竞态的发生。
 
-但如果Promise被成功状态了，但是在监听过程中（在一个`then(..)注册回调中`）发生了JS异常，会发生什么呢？
+但如果Promise被置为成功状态（fulfilled）了，但是在监听过程中（在一个`then(..)`注册回调中）发生了JS异常，会发生什么呢？即使能捕获这些异常，在更深入了解之前，你可能会惊讶于处理异常的方式。
+
+```javascript
+var p = new Promise( function(resolve,reject){
+    resolve( 42 );
+} );
+
+p.then(
+    function fulfilled(msg){
+        foo.bar();
+        console.log( msg ); // never gets here :(
+    },
+    function rejected(err){
+        // never gets here either :(
+    }
+);
+```
+
+等等，似乎`foo.bar()`的异常被掩盖了。别担心，并没有。但是更深层次的东西出问题了，即我们无法监听这个异常了。`p.then(..)`本身返回了另一个promise，这个promise会因`TypeError`异常而被置为失败状态（rejected）。
+
+为什么没有直接调用已经定义好的错误处理函数呢？表面上看起来似乎很合逻辑。但会违背一条重要原则，即一旦解析，Promise就是**不可改变的**。`p`已经由值`42`置为成功状态，因此之后不可能仅仅因为监听`p`的解析中有一个异常而改为失败状态。
+
+除了违背这一原则外，这样的行为也可能造成很大破坏，假设在promise `p`上有许多`then(..)`注册回调，因为有些会调用，而有些不会，这样会导致原因不清不楚。
+
+### 可信赖的Promise？（Trustable Promise?）
+
+基于Promise模式建立信任还有最后一个细节。
+
+毫无疑问，你已经注意到Promise并没有摆脱回调。它们只是改变了回调传入的地方。我们从`foo(..)`中得到一个东西（看起来是一个真正的Promise），然后把回调传入其中，而不是把回调传入到`foo(..)`中。
+
+但为什么这比只使用回调更值得信赖呢？我们如何确保得到的东西真的是可信赖的Promise呢？我们所相信的（仅仅因为我们已经相信它了）是不是基本上都是空中楼阁？
+
+很重要但经常被忽略的一个Promise的细节是，Promise对这个问题也有一个解决方案。即包含在原生ES6 `Promise`中的`Promise.resolve(..)`。
+
+如果你向`Promise.resolve(..)`中传入一个立即值，非Promise值、非thenable值，你会得到一个以该值将状态置为成功的promise。换句话说，以下两个promise `p1`和`p2`行为基本上一致：
+
+```javascript
+var p1 = new Promise( function(resolve,reject){
+    resolve( 42 );
+} );
+
+var p2 = Promise.resolve( 42 );
+```
+
+但是如果你向`Promise.resolve(..)`中传入一个真正的Promise，你只会得到同一个promise：
+
+```javascript
+var p1 = Promise.resolve( 42 );
+
+var p2 = Promise.resolve( p1 );
+
+p1 === p2; // true
+```
+
+更重要的是，如果你向`Promise.resolve(..)`中传入一个非Promise的thenable值。它会试图拆开这个值，并且会一直持续直至抽取到一个具体的non-Promise-like值。
+
+回想一下我们之前讨论的thenable？
+
+如下：
+
+```javascript
+var p = {
+    then: function(cb) {
+        cb( 42 );
+    }
+};
+
+// this works OK, but only by good fortune
+p
+.then(
+    function fulfilled(val){
+        console.log( val ); // 42
+    },
+    function rejected(err){
+        // never gets here
+    }
+);
+```
+
+这个`p`是个thenable。但不是一个真正的Promise。幸运的是，这是合理的，因为绝大多数都是这样的。但要是你得到的是这样的呢：
+
+```javascript
+var p = {
+    then: function(cb,errcb) {
+        cb( 42 );
+        errcb( "evil laugh" );
+    }
+};
+
+p
+.then(
+    function fulfilled(val){
+        console.log( val ); // 42
+    },
+    function rejected(err){
+        // oops, shouldn't have run(本不该运行的啊！)
+        console.log( err ); // evil laugh
+    }
+);
+```
+
+这个`p`是一个thenable，但并没有如promise表现得那么好。它是恶意的吗？或者仅仅是忘记了Promise是如何运行的？说实话，没关系。无论哪一种情形（即以上两个例子）都是不可信任的。
+
+然而，我们可以将这两个版本的`p`传入到`Promise.resolve(..)`中，最终会得到我们期望的标准、安全的结果。
+
+```javascript
+Promise.resolve( p )
+.then(
+    function fulfilled(val){
+        console.log( val ); // 42
+    },
+    function rejected(err){
+        // never gets here
+    }
+);
+```
+
+`Promise.resolve(..)`会接收任何thenable，然后将其拆开直至获得一个非thenable值。但是从`Promise.resolve(..)`，你会得到一个真正的promise，**一个你可以信赖的promise**。如果你传入的已经是个真正的promise，只会原样返回，因此，通过`Promise.resolve(..)`过滤来获取信任一点坏处也没有。
+
+因此，假设我们正在调用`foo(..)`实体函数，我们不确定它的返回值是否是正常的Promise，但我们知道它至少是个thenable。`Promise.resolve(..)`会给我们一个值得信赖的Promise包装用作链式调用：
+
+```javascript
+// don't just do this:
+foo( 42 )
+.then( function(v){
+    console.log( v );
+} );
+
+// instead, do this:
+Promise.resolve( foo( 42 ) )
+.then( function(v){
+    console.log( v );
+} );
+```
+
+**注意：** 通过`Promise.resolve(..)`包装任何函数返回值（thenable或者其它）的另一个好处是，很容易将一个函数调用标准化为一个表现良好的异步任务。如果`foo(42)`有时返回一个立即值，有时返回一个Promise，`Promise.resolve( foo(42) )`能够确保它总是一个Promise返回值。避免Zalgo让代码更好。
+
+### 信任建立（Trust Built）
+
+希望前面的讨论完全“resolve”（双关，既指解决，又指Promise中的resolve）你心中的疑惑，即为什么Promise是可信赖的，以及更重要的，为什么在构造鲁棒、可维护的软件时，信任是多么重要。
+
+在JS中，你能在没有信任的情况下编写异步代码吗？当然，你可以。我们JS开发者已经只用回调异步编程快二十年了。
+
+你对你所建立之上的机制信任到什么程度，才能够使之可预测和可依赖，一旦你开始质疑，你就会渐渐意识到回调的信任根基并不十分牢固。
+
+Promise是以可信赖语义增强回调的一种模式，因此其行为更合理，更值得信赖。通过反逆转回调的*控制权反转*，我们采用专门用来健全异步的可信赖的系统（Promise）来进行控制。
+
+## 链式流（Chain Flow）
+
+我们已经暗示过好多次了，Promise不仅仅是一个单步的*this-then-that*操作。当然，那是一个构建块，但是结果表明，我们可以串起多个Promise来代表一系列的异步步骤。
+
+成功的关键在于Promise的两个内在的行为：
+
++ 每次对Promise调用`then(..)`时，都会创建并返回一个新的Promise，我们可以对其进行链式操作。
++ `then(..)`调用的fulfillment回调（第一个参数）返回的任何值都会自动设置*链式*Promise（见第一点）为fulfillment。
+
+让我们首先说明一下是什么意思，之后我们会明白Promise是如何帮助我们创建异步序列控制流的。考虑如下代码：
+
+```javascript
+var p = Promise.resolve( 21 );
+
+var p2 = p.then( function(v){
+    console.log( v );   // 21
+
+    // fulfill `p2` with value `42`
+    return v * 2;
+} );
+
+// chain off `p2`
+p2.then( function(v){
+    console.log( v );   // 42
+} );
+```
+
+通过返回`v * 2`(即`42`),我们将第一个`then(..)`调用生成的promise `p2`置成成功状态，当`p2`的`then(..)`调用时，它从`return v * 2 `语句接收fulfillment。当然，`p2.then(..)`创建了另一个promise，我们可将它存储在`p3`变量中。
+
+但是必须创建中间变量`p2`(或者`p3`等)有点恼人。值得庆幸的是，我们可以简单地将它们串联起来：
+
+```javascript
+var p = Promise.resolve( 21 );
+
+p
+.then( function(v){
+    console.log( v );   // 21
+
+    // fulfill the chained promise with value `42`
+    return v * 2;
+} )
+// here's the chained promise
+.then( function(v){
+    console.log( v );   // 42
+} );
+```
+
+那么现在第一个`then(..)`就是异步序列中的第一步，第二个`then(..)`就是第二步。只要我们需要，就可以一直往下扩展。只要通过自动生成的Promise链在前一个`then(..)`上就行了。
+
+但此处似乎少了什么东西。要是我们想让步骤2等待步骤1作一些异步操作呢？我们采用的是立即的（immediately）`return`语句，会立刻将链式的promise置为成功状态。
+
+回想一下，当你传给它的是一个Promise或者thenable而不是一个最终值时，`Promise.resolve(..)`是如何运行的，这是使得一个Promise序列在每一步都具有异步能力的关键。`Promise.resolve(..)`会直接返回接收的真正的Promise，或者拆开接收的thenable的值--并且在拆开thenable时会一直递归下去。
+
+如果你从fulfillment（或者rejection）的回调函数中`return`一个thenable或者Promise时，也会发生同样的拆解。
+
+考虑如下：
+
+```javascript
+var p = Promise.resolve( 21 );
+
+p.then( function(v){
+    console.log( v );   // 21
+
+    // create a promise and return it
+    return new Promise( function(resolve,reject){
+        // fulfill with value `42`
+        resolve( v * 2 );
+    } );
+} )
+.then( function(v){
+    console.log( v );   // 42
+} );
+```
+
+即使我们将`42`包装早了返回的promise中，它仍然会被拆开并最终作为链式promise的解析项，以便第二个`then(..)`仍然接收到`42`。如果我们将异步引入到那个包装promise中，一切照旧：
+
+```javascript
+var p = Promise.resolve( 21 );
+
+p.then( function(v){
+    console.log( v );   // 21
+
+    // create a promise to return
+    return new Promise( function(resolve,reject){
+        // introduce asynchrony!
+        setTimeout( function(){
+            // fulfill with value `42`
+            resolve( v * 2 );
+        }, 100 );
+    } );
+} )
+.then( function(v){
+    // runs after the 100ms delay in the previous step
+    console.log( v );   // 42
+} );
+```
+
+好强大！现在我们可以按需构建任意多的异步步骤，并且每一步都可以按需推迟（或不推迟）下一步的执行。
+
+当然，这些例子中步骤之间传递的值是可选的。如果你不返回一个显式的值，会假定有个隐式的`undefined`，并且promise还是以同样的方式串起来。每个Promise的解析项只是进行到下一步的信号。
+
+为了更进一步说明链式，让我们创建一个通用实体函数，用来生成延时Promise，使之能够多步复用：
+
+```javascript
+function delay(time) {
+    return new Promise( function(resolve,reject){
+        setTimeout( resolve, time );
+    } );
+}
+
+delay( 100 ) // step 1
+.then( function STEP2(){
+    console.log( "step 2 (after 100ms)" );
+    return delay( 200 );
+} )
+.then( function STEP3(){
+    console.log( "step 3 (after another 200ms)" );
+} )
+.then( function STEP4(){
+    console.log( "step 4 (next Job)" );
+    return delay( 50 );
+} )
+.then( function STEP5(){
+    console.log( "step 5 (after another 50ms)" );
+} )
+...
+```
+
+调用`delay(200)`会创建一个200ms后fulfill的promise，然后从第一个`then(..)`的fulfillment回调中返回，这会让第二个`then(..)`的promise等那个200ms的promise。
+
+**注意：** 如上所述，在交替过程中有两个promise：200ms延时的promise和来自第二个`then(..)`所链的promise（译者注：指第一个`then(..)`生成的promise）。但是你从心理上会觉得将这两个promise整合起来更容易，因为Promise机制自动为你整合状态。从那个角度讲，你可以认为`return delay(200)`创建了一个promise并替代了早先返回的链式promise。
+
+然而，老实说，没有信息传递的序列延时并不是一个特别有用的Promise流控制的例子。让我们看一个更有实际意义的场景。
+
+让我们考虑Ajax请求，而不是定时器：
+
+```javascript
+// assume an `ajax( {url}, {callback} )` utility
+
+// Promise-aware ajax
+function request(url) {
+    return new Promise( function(resolve,reject){
+        // the `ajax(..)` callback should be our
+        // promise's `resolve(..)` function
+        ajax( url, resolve );
+    } );
+}
+```
+
+我们首先定义了一个`request(..)`实体，用来构建一个promise代表`ajax(..)`调用的完成：
+
+```javascript
+request( "http://some.url.1/" )
+.then( function(response1){
+    return request( "http://some.url.2/?v=" + response1 );
+} )
+.then( function(response2){
+    console.log( response2 );
+} );
+```
+
+
+
+
+
 
 
 
