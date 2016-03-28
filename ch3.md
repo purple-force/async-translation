@@ -661,7 +661,7 @@ var p2 = Promise.resolve( p1 );
 p1 === p2; // true
 ```
 
-更重要的是，如果你向`Promise.resolve(..)`中传入一个非Promise的thenable值。它会试图拆开这个值，并且会一直持续直至抽取到一个具体的non-Promise-like值。
+更重要的是，如果你向`Promise.resolve(..)`中传入一个非Promise的thenable值。它会试图拆析（unwrap）这个值，并且会一直持续直至抽取到一个具体的non-Promise-like值。
 
 回想一下我们之前讨论的thenable？
 
@@ -724,7 +724,7 @@ Promise.resolve( p )
 );
 ```
 
-`Promise.resolve(..)`会接收任何thenable，然后将其拆开直至获得一个非thenable值。但是从`Promise.resolve(..)`，你会得到一个真正的promise，**一个你可以信赖的promise**。如果你传入的已经是个真正的promise，只会原样返回，因此，通过`Promise.resolve(..)`过滤来获取信任一点坏处也没有。
+`Promise.resolve(..)`会接收任何thenable，然后将其拆析（unwrap）直至获得一个非thenable值。但是从`Promise.resolve(..)`，你会得到一个真正的promise，**一个你可以信赖的promise**。如果你传入的已经是个真正的promise，只会原样返回，因此，通过`Promise.resolve(..)`过滤来获取信任一点坏处也没有。
 
 因此，假设我们正在调用`foo(..)`实体函数，我们不确定它的返回值是否是正常的Promise，但我们知道它至少是个thenable。`Promise.resolve(..)`会给我们一个值得信赖的Promise包装用作链式调用：
 
@@ -805,7 +805,7 @@ p
 
 但此处似乎少了什么东西。要是我们想让步骤2等待步骤1作一些异步操作呢？我们采用的是立即的（immediately）`return`语句，会立刻将链式的promise置为成功状态。
 
-回想一下，当你传给它的是一个Promise或者thenable而不是一个最终值时，`Promise.resolve(..)`是如何运行的，这是使得一个Promise序列在每一步都具有异步能力的关键。`Promise.resolve(..)`会直接返回接收的真正的Promise，或者拆开接收的thenable的值--并且在拆开thenable时会一直递归下去。
+回想一下，当你传给它的是一个Promise或者thenable而不是一个最终值时，`Promise.resolve(..)`是如何运行的，这是使得一个Promise序列在每一步都具有异步能力的关键。`Promise.resolve(..)`会直接返回接收的真正的Promise，或者拆析（unwrap）接收的thenable的值--并且在拆析（unwrap）thenable时会一直递归下去。
 
 如果你从fulfillment（或者rejection）的回调函数中`return`一个thenable或者Promise时，也会发生同样的拆解。
 
@@ -828,7 +828,7 @@ p.then( function(v){
 } );
 ```
 
-即使我们将`42`包装早了返回的promise中，它仍然会被拆开并最终作为链式promise的解析项，以便第二个`then(..)`仍然接收到`42`。如果我们将异步引入到那个包装promise中，一切照旧：
+即使我们将`42`包装早了返回的promise中，它仍然会被拆析（unwrap）并最终作为链式promise的解析项，以便第二个`then(..)`仍然接收到`42`。如果我们将异步引入到那个包装promise中，一切照旧：
 
 ```javascript
 var p = Promise.resolve( 21 );
@@ -914,6 +914,408 @@ request( "http://some.url.1/" )
     console.log( response2 );
 } );
 ```
+
+**注意：** 开发者常遇到的一种情形是，他们想采用一些本身不支持Promise（Promise-enabled）的第三方实体（比如此处的`ajax(..)`，它需要一个回调函数）来实现类Promise（Promise-aware）的异步流控制。尽管原生的ES6 `Promise`机制无法为我们自动提供这种模式，但是所有的Promise库会提供。通常称这个过程为“提升（lifting）”或者“promise化（promisifying）” 或者其它变种。我们之后会讨论这一技术。
+
+使用返回Promise（Promise-returning）的`request(..)`，我们使用第一个URL调用它来隐式地创建了链的第一步，然后用第一个`then(..)`链到了返回的promise上。
+
+一旦`response1`返回，我们用那个值来构建第二个URL，作第二次`request(..)`调用。第二个`request(..)`返回promise后，异步流中的第三步等待Ajax调用完成。最终，一旦返回值，立即打印`response2`。
+
+我们构建的Promise链不仅仅是一个表示多步异步序列的流控制，还充当了步与步之间传递信息的通道。
+
+要是Promise链中的某一步出错了呢？错误/异常是基于单个Promise的（译者注：指异常发生在生成Promise的每个链中），这意味着可以在链中的任一点捕获这个错误，并且那个捕获在那时充当了“重设”链回到正常操作的角色:
+
+```javascript
+// step 1:
+request( "http://some.url.1/" )
+
+// step 2:
+.then( function(response1){
+    foo.bar(); // undefined, error!
+
+    // never gets here
+    return request( "http://some.url.2/?v=" + response1 );
+} )
+
+// step 3:
+.then(
+    function fulfilled(response2){
+        // never gets here
+    },
+    // rejection handler to catch the error
+    function rejected(err){
+        console.log( err ); // `TypeError` from `foo.bar()` error
+        return 42;
+    }
+)
+
+// step 4:
+.then( function(msg){
+    console.log( msg );     // 42
+} );
+```
+
+当step2中发生错误时，step3中的rejection回调捕获到该异常。如果rejection函数中有返回值（此处代码中为`42`），则为step4将promise置为成功状态，以便让链回到fulfillment状态。
+
+**注意：** 正如我们早前讨论的一样，当从一个fulfillment函数中返回一个promise时，它会被拆析（unwrap）并且推迟下一步。这同样也适用于rejection函数，即如果step3返回一个promise而不是`return 42`，则那个promise会推迟step4。一个`then(..)`中的fulfillment和rejection回调中的异常都会将下一个（链式）promise立即置为失败状态。
+
+如果你在一个promise上调用`then(..)`，并且你只传了一个fulfillment回调，则会替换为一个假定的rejection处理函数：
+
+```javascript
+var p = new Promise( function(resolve,reject){
+    reject( "Oops" );
+} );
+
+var p2 = p.then(
+    function fulfilled(){
+        // never gets here
+    }
+    // assumed rejection handler, if omitted or
+    // any other non-function value passed
+    // function(err) {
+    //     throw err;
+    // }
+);
+```
+
+如你所见，假定的rejection处理函数只是简单地重新抛出错误，最终强制`p2`（链式的promise）以同样的错误原因reject。本质上，这允许错误沿着Promise链继续传播，直至遇到一个显式定义的rejection处理函数。
+
+**注意：** 关于错误处理，稍后我们会讨论更多细节，因为有些其它微妙的细节需要关注。
+
+如果没向`then(..)`中传递一个有效的fulfillment处理函数，则同样也会替换为一个默认的处理函数：
+
+```javascript
+var p = Promise.resolve( 42 );
+
+p.then(
+    // assumed fulfillment handler, if omitted or
+    // any other non-function value passed
+    // function(v) {
+    //     return v;
+    // }
+    null,
+    function rejected(err){
+        // never gets here
+    }
+);
+```
+
+如你所见，默认的fulfillment处理函数只是简单地将接收到的值传递到下一步（Promise）。
+
+**注意：** `then(null,function(err){ .. })`模式--只处理rejection（如果有的话）而让fulfillment通过--有一个快捷的API：`catch(function(err){ .. })`。我们将在下一节中详尽地讨论`catch(..)`。
+
+让我们简单回顾下Promise支持的链式流控制的固有行为：
+
++ 对一个Promise调用`then(..)`会自动生成一个新的Promise并返回。
++ 在fulfillment/rejection处理函数内部，如果返回一个值或者抛出一个异常，则新返回的（链式）Promise会相应地得到解析。
++ 如果fulfillment或者rejection处理函数返回一个Promise，则该Promise会被拆析（unwrap），它的解析结果会成为当前`then(..)`返回的链式Promise的解析结果。
+
+尽管链式流控制很有用，但最确切地说，这是Promise组成（组合）方式的一个附加好处，而不是主要目的。正如我们多次讨论过的，Promise将异步标准化并且封装了与时间无关的值状态，那才是我们得以用这种有用的方式将它们链在一起的原因。
+
+当然，在处理第二章我们提出的回调混乱问题时，链式的序列化表示（this-then-this-then-this...）是个巨大改善。但是仍然有相当数量的样板（`then(..)`和`function(){ .. }`）需要费力的读完。在下一章，我们将会见到一个明显更好的、采用生成器的序列化流控制表示。
+
+### 术语：解析，成功，失败（Terminology: Resolve, Fulfill, and Reject）
+
+在更深入学习Promise前，我们需要搞清楚一些有点混淆的术语，“resolve”，“fulfill”和“reject”。首先考虑`Promise(..)`构造函数：
+
+```javascript
+var p = new Promise( function(X,Y){
+    // X() for fulfillment
+    // Y() for rejection
+} );
+```
+
+如你所见，两个回调函数（此处标为`X`和`Y`）。第一个*通常*用于将Promise标为fulfilled状态，第二个*总是*将Promise标为rejected状态。但“通常”是什么，准确地命名这些参数（译者注：指`X`和`Y`）意味着什么？
+
+最终，只是你的用户代码对引擎有用，标识符名称对引擎而言没任何意义。因此从技术上来说，标识符名称并不重要，`foo(..)`和`bar(..)`同样可以。但是你所用的词不但影响你如何思考这段代码，而且也影响团队中的其他开发人员。对精心安排的异步代码的错误思考比意大利面条式的回调更糟。
+
+因此，如何称呼它们真的有点重要。
+
+第二个参数很容易确定。几乎所有的文章采用`reject(..)`作为它的名字，因为这就是它（也是唯一！）做的事，是个非常好的命名选择。我强烈建议你总是使用`reject(..)`。
+
+但是关于第一个参数，就有点模糊不清了，在Promise文献中通常称为`resolve(..)`，那个词很明显和“resolution”相关，即在所有文献中（包括这本书）用来描述给一个Promise设置最终值/状态。我们已经好几次使用"resolve the Promise"来表示fulfill或者reject一个Promise。
+
+但是，如果这个参数看起来似乎是专门用于fulfill Promise，为什么我们不叫它`fulfill(..)`，而叫它`resolve(..)`更准确呢？为了回答这个问题，我们也来看一下两个`Promise` API：
+
+```javascript
+var fulfilledPr = Promise.resolve( 42 );
+
+var rejectedPr = Promise.reject( "Oops" );
+```
+
+`Promise.resolve(..)`创建了一个按所给值解析的Promise。在这个例子中，`42`是个正常的，非Promise，非thenable的值。因此，以值`42`创建了fulfilled的promise `fulfilledPr`。`Promise.reject("Oops")`以原因短语`"Oops"`创建了一个rejected的promise `rejectedPr`。
+
+现在让我们举例说明一下，如果显式地用在可能导致fulfillment或者rejection的上下文中，为什么“resolve”一词（比如 `Promise.resolve(..)`中）很清晰并且确实更准确：
+
+```javascript
+var rejectedTh = {
+    then: function(resolved,rejected) {
+        rejected( "Oops" );
+    }
+};
+
+var rejectedPr = Promise.resolve( rejectedTh );
+```
+
+正如本章早些时候讨论的那样，`Promise.resolve(..)`会直接返回接收的真实Promise，或者拆析（unwrap）接收的thenable。如果拆析（unwrap）的thenable显示的是个rejected状态，则`Promise.resolve(..)`事实上返回的是同样的rejected状态。
+
+因此，`Promise.resolve(..)`是个很好的，准确的API方法名称，因为它实际上既能生成fulfillment，又能生成rejection。
+
+`Promise(..)`构造函数的第一个回调参数既会拆析（unwrap）一个thenable（与`Promise.resolve(..)`一致），也可拆析（unwrap）一个真正的Promise：
+
+```javascript
+var rejectedPr = new Promise( function(resolve,reject){
+    // resolve this promise with a rejected promise
+    resolve( Promise.reject( "Oops" ) );
+} );
+
+rejectedPr.then(
+    function fulfilled(){
+        // never gets here
+    },
+    function rejected(err){
+        console.log( err ); // "Oops"
+    }
+);
+```
+
+现在应该明白了`resolve(..)`是`Promise(..)`构造函数的第一个回调参数的合适名称了吧。
+
+**警告：** 前面提到的`reject(..)`**并不**会像`resolve(..)`一样进行拆析。如果你向`reject(..)`中传入一个Promise/thenable。则该未处理的值将被设为rejection原因短语。随后的rejection处理函数会接收到你传入`reject(..)`的Promise/thenable，而不是最终拆析的立即值。
+
+现在让我们的注意力回到`then(..)`中的回调。它们应该称为什么（无论是在文献中还是在代码中）？我建议`fulfilled(..)`和`rejected(..)`：
+
+```javascript
+function fulfilled(msg) {
+    console.log( msg );
+}
+
+function rejected(err) {
+    console.error( err );
+}
+
+p.then(
+    fulfilled,
+    rejected
+);
+```
+
+`then(..)`中的第一个参数，毫无疑问总是fulfillment情况，因此没有 必要使用二义性术语“resolve”。顺便提一下，ES6规范中使用`onFulfilled(..)`和`onRejected(..)`来标记这两个回调，因此使用这两个术语很准确的。
+
+### 错误处理（Error Handling）
+
+在异步编程中，关于Promise rejection--可能是通过主动的`reject(..)`调用，也可能是通过偶然的JS异常--是如何允许健全的错误处理的，我们已经看了几个例子了。
+
+对绝大多数开发者而言，错误处理最自然的形式就是同步的`try..catch`结构了。不幸的是，它只是同步的，因此无法在异步代码模式中奏效：
+
+```javascript
+function foo() {
+    setTimeout( function(){
+        baz.bar();
+    }, 100 );
+}
+
+try {
+    foo();
+    // later throws global error from `baz.bar()`
+}
+catch (err) {
+    // never gets here
+}
+```
+
+`try..catch`固然很好，但是在异步操作中不起作用。也就是说，除非有一些附加的环境支持，我们会在第四章的生成器中讨论。
+
+在回调中，一些标准中已经出现了模式化错误处理，绝大多数是“错误优先回调（error-first callback）”类型的：
+
+```javascript
+function foo(cb) {
+    setTimeout( function(){
+        try {
+            var x = baz.bar();
+            cb( null, x ); // success!
+        }
+        catch (err) {
+            cb( err );
+        }
+    }, 100 );
+}
+
+foo( function(err,val){
+    if (err) {
+        console.error( err ); // bummer :(
+    }
+    else {
+        console.log( val );
+    }
+} );
+```
+
+**注意：** 此处的`try..catch`只在`baz.bar()`调用是同步的、立即成功或者失败时才起作用。如果`baz.bar()`本身就是异步完成函数，则其中的任何异步错误都无法捕获。
+
+我们传给`foo(..)`的回调通过保留第一个参数`err`，希望接收一个错误信号。如果存在，则假定有错误发生。如果不存在，则假定成功。
+
+此种错误处理在技术上称为*async capable*，但这一点都不好。多级错误优先回调和无处不在的`if`语句检查交织在一起，不可避免地将你置于回调地狱的危险之中（见第二章）。
+
+让我们回到Promise的错误处理中来，采用传给`then(..)`的rejection处理函数的方式。Promise并没有采用流行的“错误优先回调”的设计方式，而是采用“分隔回调”的方式，一个是fulfillment回调，一个是rejection回调：
+
+```javascript
+var p = Promise.reject( "Oops" );
+
+p.then(
+    function fulfilled(){
+        // never gets here
+    },
+    function rejected(err){
+        console.log( err ); // "Oops"
+    }
+);
+```
+
+尽管这种模式的错误处理表面上看起来很好理解，但是Promise错误处理的细微差别通常更难完全掌握。
+
+考虑如下代码：
+
+```javascript
+var p = Promise.resolve( 42 );
+
+p.then(
+    function fulfilled(msg){
+        // numbers don't have string functions,
+        // so will throw an error
+        console.log( msg.toLowerCase() );
+    },
+    function rejected(err){
+        // never gets here
+    }
+);
+```
+
+如果`msg.toLowerCase()`正常的抛出一个错误（确实会），为什么我们的错误处理函数没收到通知呢？正如早先解释的一样，因为那个错误处理是为`p` promise，已经由值`42`变为fulfilled状态了。`p` promise 是不可改变的，因此，唯一一个能被通知到错误的是`p.then(..)`返回的promise，而在该例中我们没有去捕获。
+
+这向我们描述了一幅很清楚的画面，即为什么Promise的错误处理是容易出错的（双关语）。错误太容易被掩盖了，很少是出于你的意愿。
+
+**警告：** 如果以非法的方式使用Promise API，并且错误阻止了正常的Promise构建，则会立即抛出异常，**而不是一个rejected Promise**。一些不正确的使用导致Promise构建失败的例子有：`new Promise(null)`，`Promise.all()`，`Promise.race(42)`等。如果不首先采用Promise API构建一个合法的Promise，你无法得到一个rejected Promise！
+
+### 绝望的深渊（Pit of Despair）
+
+Jeff Atwood 多年前提过：编程语言通常是这样建立的，即默认开发者会掉进”绝望的深渊“（[http://blog.codinghorror.com/falling-into-the-pit-of-success/](http://blog.codinghorror.com/falling-into-the-pit-of-success/)）--因而遭受惩罚--并且你不得不花更大的力气去修正它。他恳求我们创建”成功之坑（pit of success）“，即默认你会成功，并且必须花大力气才会失败。
+
+Promise 的错误处理毫无疑问是”Pit of Despair“式的设计。默认情况下，假定你想让Promise状态掩盖任何错误，并且如果你忘记监听那个状态，那么错误就会静默地消逝--通常令人绝望。
+
+为了避免丢掉那个错误，已经有一些开发人员声称Promise链”最好的实践“是总是以一个`catch(..)`结尾，比如：
+
+```javascript
+var p = Promise.resolve( 42 );
+
+p.then(
+    function fulfilled(msg){
+        // numbers don't have string functions,
+        // so will throw an error
+        console.log( msg.toLowerCase() );
+    }
+)
+.catch( handleErrors );
+```
+
+因为没给`then(..)`传递rejection处理函数，所以就替换为默认的处理函数，即简单的将错误传播到链中的下一个promise。这样，在解析时，`p`中的错误和`p`之后的错误（如`msg.toLowerCase()`）会被过滤到最终的`handleErrors(..)`中。
+
+问题解决了，是吗？，没那么快！
+
+如果`handleErrors(..)`本省也有错误，会发生什么呢？谁来捕获那个错误？仍然有一个未参与的promise：`catch(..)`返回的，我们没有捕获，也没有为其注册rejection处理函数。
+
+你不能简单地在链尾再接个`catch(..)`，因为同样有可能失败。在任何Promise链的最后一步，无论是什么，总可能在未监听的promise中悬着一个未捕获的错误。
+
+听起来似乎是个不可能的难题？
+
+### 未捕获处理（Uncaught Handling）
+
+这并不是个容易完全解决的问题。有些其它方法，许多人说可能更好一点。
+
+一些Promise库已经添加了一些方法，用来注册类似于”全局的未处理rejection“处理函数的东西，它会被调用，而不是全局地抛出异常。但对于如可识别一个错误是未处理的，他们的解决方案是用一个随机长度的定时器，比如3秒，从rejection时开始运行。如果在定时器触发前，一个Promise被rejected了，但是没有注册错误处理函数，之后就会假定你不会给它注册处理函数，因此它是”未捕获的（uncaught）“。
+
+在实际开发中，对许多库而言，这种做法很奏效。因为绝大多数使用模式的Promise rejection和监听rejection之间不需要显著的延时。但是这种模式有些问题，因为3秒太随意了（即使是从经验上来看），并且因为有些情况下，确实需要Promise在一定时间内保持rejected状态，你并不希望所有误报（false positives）（还没处理的”未捕获错误“）发生时都调用”uncaught“处理函数。
+
+另一个更常见的建议是Promise应该添加个`done(..)`方法，本质上是标记Promise链”结束了“。`done(..)`不会创建也不会返回一个Promise，因此传入`done(..)`中的回调不会向一个不存在的链式Promise报告问题。
+
+那么会发生什么呢？在未捕获错误（uncaught error）情况下，它会按照你预期的那样得到处理：`done(..)`内的rejection处理函数中的任何异常，都会被当做全局的未捕获错误抛出（通常在开发者控制台）：
+
+```javascript
+var p = Promise.resolve( 42 );
+
+p.then(
+    function fulfilled(msg){
+        // numbers don't have string functions,
+        // so will throw an error
+        console.log( msg.toLowerCase() );
+    }
+)
+.done( null, handleErrors );
+
+// if `handleErrors(..)` caused its own exception, it would
+// be thrown globally here
+```
+
+似乎听起来比永不终止的链或者随机超时更具吸引力。但最大的问题是它并不是ES6标准的一部分，因此不论听起来有多好，离称为一个可信赖并且普遍的解决方案还有更长的路。
+
+那么我们就这么被困住了吗？不全是。
+
+浏览器有一个我们代码不具备的独特能力：它们能够追踪并且很确定的知道任一个对象被丢弃和垃圾回收的时间。因此，浏览器可以追踪Promise对象，一旦被垃圾回收，如果其中有一个rejection，浏览器能很确定的知道这是个正当的”未捕获错误“，并且很自信地将其报告给开发者控制台。
+
+
+**注意：** 写到这时，Chrome和Firefox在此种”uncaught rejection“能力方面有一些早期的尝试，尽管支持的不完全。
+
+然而，如果一个Promise没有被垃圾回收--通过各种不同的编程模式，这种情况很容易发生--浏览器的垃圾回收嗅探就无法帮你诊断出有一个静默的rejected Promise。
+
+还有其它办法吗？是的。
+
+### 成功之坑（Pit of Success）
+
+关于Promise的行为将来可能变成什么样，接下来所说的只是理论性的。我认为这远远优于我们当前所拥有的。并且我认为这种改变在后ES6中是可能的，因为它不会打破浏览器对ES6 Promise的兼容。此外，如果细心一点的话，这种改变可以polyfill，让我们看下：
+
++ 如果在那个时刻Promise上没有注册错误处理函数，Promise能够在下一个作业（Job）或者事件轮询tick时，默认地（向开发者控制台）报告任何rejection。
++ 你想一个rejected Promise在被监听前的一不确定时间内保持rejected状态，此时你可以调用`defer()`，它可以阻止该Promise的自动错误上报。
+
+如果一个Promise被rejected了，它会默认将之上报给开发者控制台（而不是默认静默）。你可以选择隐式地（在rejection前注册一个错误处理函数）或者显式地（采用`defer()`）退出错误上报。无论哪一种情况，都是由你控制误报（false positives）。
+
+考虑如下：
+
+```javascript
+var p = Promise.reject( "Oops" ).defer();
+
+// `foo(..)` is Promise-aware
+foo( 42 )
+.then(
+    function fulfilled(){
+        return p;
+    },
+    function rejected(err){
+        // handle `foo(..)` error
+    }
+);
+...
+```
+
+当我们创建`p`时，我们打算等一会再使用/监听它的rejection，因此我们调用了`defer()`。--因此没有全局上报。为实现链式，`defer()`只是简单地返回同样的promise。
+
+`foo(..)`返回的promise立刻附上了一个错误处理函数，因此隐式地选择退出，并且也没有错误上报。
+
+但`then(..)`调用返回的promise没有附上`defer(..)`或者错误处理函数，因此，如果它reject（因内部的任一个解析处理函数），就会被当作未捕获异常上报至开发者控制台。
+
+**这种设计就是成功之坑。** 默认情况下，所有错误，都被处理或者上报--这是绝大多数开发者在绝大多数情况下希望的那样。你既可以注册一个处理函数，也可以选择退出，表明你想推迟到以后处理异常，只在那种特定情况下你选择额外的责任。
+
+这种方法唯一的危险就是，如果你`defer()`一个Promise，但之后无法监听/处理rejection。
+
+但是你必须主动调用`defer()`来选择进入绝望深渊--默认是成功之坑--因此，对于你自己的错误，我们所能做的不多。
+
+我认为Promise错误处理仍然有希望（后ES6）。我希望当权者（译者注：此处指ES规范的制定者）重新想下这种情况并且考虑这个方案。同时，你可以自己实现（对读者而言是个不小的挑战！），或者使用一个更精简的库！
+
+**注意：**错误处理/上报的精确模型在我的*异步队列*Promise 抽象库中实现了，会在本书的附录A中讨论。
+
+
+
+
+
 
 
 
