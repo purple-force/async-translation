@@ -482,7 +482,7 @@ p.then( function(){
 
 ### Promise调度的怪癖（Promise Scheduling Quirks）
 
-然而，有一点必须要注意，两个不同Promise的链式回调的相对顺序无法可靠预测时的调度有许多细微的差别。
+然而，有一点必须要注意，在相对顺序无法可靠预测时，两个不同Promise的链式回调的调度有许多细节需要考虑。
 
 如果两个promise `p1`和`p2`已经解析完了，那么`p1.then(..); p2.then(..)`最终`p1`的回调会在`p2`的回调之前被调用。但是有一些不可思议的情况，比如下面这个：
 
@@ -1172,7 +1172,7 @@ p.then(
 );
 ```
 
-尽管这种模式的错误处理表面上看起来很好理解，但是Promise错误处理的细微差别通常更难完全掌握。
+尽管这种模式的错误处理表面上看起来很好理解，但是Promise错误处理的细节通常更难完全掌握。
 
 考虑如下代码：
 
@@ -1310,7 +1310,346 @@ foo( 42 )
 
 我认为Promise错误处理仍然有希望（后ES6）。我希望当权者（译者注：此处指ES规范的制定者）重新想下这种情况并且考虑这个方案。同时，你可以自己实现（对读者而言是个不小的挑战！），或者使用一个更精简的库！
 
-**注意：**错误处理/上报的精确模型在我的*异步队列*Promise 抽象库中实现了，会在本书的附录A中讨论。
+**注意：** 错误处理/上报的精确模型在我的*异步队列*Promise 抽象库中实现了，会在本书的附录A中讨论。
+
+## Promise模式（Promise Patterns）
+------------
+
+我们已经见识了采用Promise链（this-then-this-then-that流控制）实现的序列模式，但除了Promise外，构建在异步模式上的抽象，还有许多变体。这些模式用来简化异步流控制的表示--这使得我们的代码更合理，更易于维护--即使是在程序中最复杂的部分。
+
+有两种这样的模式直接被编进了原生ES6 `Promise`实现中，因此我们可以很方便地使用它们，来作为其它模式的构建块。
+
+### Promise.all([])
+
+在异步序列中（Promise链），在任一给定时刻只能协调一个异步任务--step 2严格地跟在step 1后面，step 3严格地跟在step 2后面。但要是同时进行两步或更多步呢（即”并行“）？
+
+在传统编程术语中，”门（gate）“机制是指在继续之前，需要等待两个或更多的并行/并发任务完成。完成的顺序并不重要，只需要它们都完成，进而打开门，让流控制通过。
+
+在Promise API中，我们称这种模式为`all([ .. ])`。
+
+假设你想同时发两个Ajax请求，并且在发第三个请求前，需要等到两个都完成，顺序不重要。考虑如下：
+
+```javascript
+/ `request(..)` is a Promise-aware Ajax utility,
+// like we defined earlier in the chapter
+
+var p1 = request( "http://some.url.1/" );
+var p2 = request( "http://some.url.2/" );
+
+Promise.all( [p1,p2] )
+.then( function(msgs){
+    // both `p1` and `p2` fulfill and pass in
+    // their messages here
+    return request(
+        "http://some.url.3/?v=" + msgs.join(",")
+    );
+} )
+.then( function(msg){
+    console.log( msg );
+} );
+```
+
+`Promise.all([ .. ])`接收单个参数，即一个`array`，通常由Promise实例组成。`Promise.all([ .. ])`返回的promise会接收一个fulfillment信号（代码中的`msgs`），它是一个由所有传入的promise生成的fulfillment信号组成的`array`，顺序与指定的一致（与fulfillment顺序无关）。
+
+**注意：** 从技术来讲，传入`Promise.all([ .. ])`的`array`值可以是Promise、thenable或者甚至是立即（immediate）值。每一个值都会传入到`Promise.resolve(..)`中，确保最终都是真正的Promise，因此立即值会被以该值标准化为Promise。如果`array`是空的
+，则主Promise会立即fulfilled。
+
+当且仅当所有的成员promise都fulfilled时，`Promise.all([ .. ])`返回的主promise才fulfilled。如果任一个promise被rejected了，主`Promise.all([ .. ])`promise立即被rejected，不管其它promise的结果。
+
+记住，在每个promise后都要附个rejection/error处理函数，尤其是`Promise.all([ .. ])`返回的promise。
+
+### Promise.race([])
+
+尽管`Promise.all([ .. ])`能够同时协调多个Promise，并且假定所有的promise都需要fulfillment，但有时你只想响应”第一个跨过终点线的Promise“，而让其它Promise离开。
+
+这种模式通常称为”闩（latch）“，但在Promise中，称为'race'。
+
+**警告：** ”只有第一个跨过终点线的赢“，尽管这一比喻很恰当，但是，"race"有点被过度使用了，因为在程序中，”竞态（race condition）“通常被认为是bug（见第一章）。不要把`Promise.race([ .. ])`和”race condition“弄混淆了。
+
+
+`Promise.race([ .. ])`也接收单个`array`参数，包括一个或多个Promise、thenable或者立即值。包含立即值并没有太多的实际意义，因为第一个列出来的立即值很明显会赢--就像赛跑中，一个站在终点线开始跑的人一样！
+
+类似于`Promise.all([ .. ])`，当任一个Promise解析是fulfillment时，`Promise.race([ .. ])`即fulfill，当任一个Promise解析是rejection时，`Promise.race([ .. ])`即reject。
+
+**警告：** 一个”race“至少需要一个”runner“，因此，如果你传入一个空`array`，主`race([..])`Promise永远不会解析。这是个footgun（译者注：没查到这是个什么鬼）！ES6本该指定它要么fulfill，要么reject，或者抛出某种同步的错误。不幸的是，由于Promise库早于ES6 `Promise`，他们只好将之放至一边，因此千万不要传一个空`array`。
+
+让我们重新看一下前面的并发Ajax例子，但是以`p1`和`p2`竞争的形式：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility,
+// like we defined earlier in the chapter
+
+var p1 = request( "http://some.url.1/" );
+var p2 = request( "http://some.url.2/" );
+
+Promise.race( [p1,p2] )
+.then( function(msg){
+    // either `p1` or `p2` will win the race
+    return request(
+        "http://some.url.3/?v=" + msg
+    );
+} )
+.then( function(msg){
+    console.log( msg );
+} );
+```
+
+因为只有一个promise胜出，所以fulfillment值是单个信息值，不是如`Promise.all([ .. ])`的`array`。
+
+### 超时竞赛（Timeout Race）
+
+我们早先看过这个例子，用来说明如何使用`Promise.race([ .. ])`表示”promise timeout“模式：
+
+```javascript
+// `foo()` is a Promise-aware function
+
+// `timeoutPromise(..)`, defined ealier, returns
+// a Promise that rejects after a specified delay
+
+// setup a timeout for `foo()`
+Promise.race( [
+    foo(),                  // attempt `foo()`
+    timeoutPromise( 3000 )  // give it 3 seconds
+] )
+.then(
+    function(){
+        // `foo(..)` fulfilled in time!
+    },
+    function(err){
+        // either `foo()` rejected, or it just
+        // didn't finish in time, so inspect
+        // `err` to know which
+    }
+);
+```
+
+多数情况下，这种超时模式很管用。但有些细节需要考虑，坦白来说，这些细节对`Promise.race([ .. ])`和`Promise.all([ .. ])`同等适用。
+
+### ”最后“（”Finally“）
+
+关键问题是，”被废弃/忽略的promise发生了什么？“我们不是从性能角度来问的--它们通常最终会被垃圾回收--而是从行为角度（副作用等等）。Promise不能取消--也不应该取消，否则会破坏外部不可变性信任，这会在本章的”Promise Uncancelable“一节中讨论--因此，只能静默忽略这些promise。
+
+但要是前面例子中的`foo()`保留着某种资源，但是超时首先触发，造成那个promise被忽略了呢？在超时后，这种模式能够主动释放保留的资源，或者取消可能造成的任何副作用吗？要是你想要的只是记录`foo()`超时呢？
+
+一些开发者已经提议，Promise需要一个`finally(..)`回调注册，总是在Promise解析完后调用，允许你指定任何必要的清理工作。目前并不存在于规范中，但可能出现在ES7+中。让我们拭目以待。
+
+它看起来可能会是这样：
+
+```javascript
+var p = Promise.resolve( 42 );
+
+p.then( something )
+.finally( cleanup )
+.then( another )
+.finally( cleanup );
+```
+
+**注意：** 在各种Promise库中，`finally(..)`仍然会创建并返回一个新的Promise（为了保证链式）。如果`cleanup(..)`函数返回一个Promise，它会被链接到链中，这意味着你仍然可能有我们之前讨论的未处理rejection问题。
+
+同时，我们可以实现个静态帮助函数，允许我们监听（不会影响）Promise的解析结果：
+
+```javascript
+// polyfill-safe guard check
+if (!Promise.observe) {
+    Promise.observe = function(pr,cb) {
+        // side-observe `pr`'s resolution
+        pr.then(
+            function fulfilled(msg){
+                // schedule callback async (as Job)
+                Promise.resolve( msg ).then( cb );
+            },
+            function rejected(err){
+                // schedule callback async (as Job)
+                Promise.resolve( err ).then( cb );
+            }
+        );
+
+        // return original promise
+        return pr;
+    };
+}
+```
+
+在之前超时例子中使用该监听函数：
+
+```javascript
+Promise.race( [
+    Promise.observe(
+        foo(),                  // attempt `foo()`
+        function cleanup(msg){
+            // clean up after `foo()`, even if it
+            // didn't finish before the timeout
+        }
+    ),
+    timeoutPromise( 3000 )  // give it 3 seconds
+] )
+```
+
+`Promise.observe(..)`帮助函数只是为了说明如何在不影响它们的情况下，监听Promise的完成。其它Promise库有自己的解决方案。无论你怎么实现，都要确保你的Promise不会意外地被静默忽略。
+
+### all([..])和race([..])的变体（Variations on all([ .. ]) and race([ .. ])）
+
+尽管原生ES6只有内建的`Promise.all([ .. ])`和`Promise.race([ .. ])`，但基于这些，还可以实现一些常用的模式：
+
++ `none([..])`有点像`all([ .. ])`，但是fulfillment和rejection是相反的，所有的Promise都应当被rejected--rejection变为fulfillment值，反之亦然。
++ `any([ .. ]) `有点像`all([ .. ])`，但是它会忽略任何rejection，因此只需要一个fulfill，而不是全部。
++ 'first([ .. ])'有点像`all([ .. ])`的竞争版，即忽略任何rejection，一旦第一个Promise fulfill，该Promise就fulfill了。
++ `last([ .. ])`有点像'first([ .. ])'，但是最后一个Promise获胜。
+
+有些Promise抽象库实现了以上这些，但是你也可以利用Promise的机制（`race([ .. ])`和`all([ .. ])`）自己定义。
+
+例如，这是我们定义的`first([..])`:
+
+```javascript
+// polyfill-safe guard check
+if (!Promise.first) {
+    Promise.first = function(prs) {
+        return new Promise( function(resolve,reject){
+            // loop through all promises
+            prs.forEach( function(pr){
+                // normalize the value
+                Promise.resolve( pr )
+                // whichever one fulfills first wins, and
+                // gets to resolve the main promise
+                .then( resolve );
+            } );
+        } );
+    };
+}
+```
+
+**注意：** 如果所有promise都reject，这个`first(..)`实现中并没有reject，只是简单的挂起，就像`Promise.race([])`一样。如果愿意，你可以另外添加逻辑来跟踪每个promise 的rejection，如果所有promise均reject，在主promise上调用`reject()`。我们将之留给读者作为练习。
+
+### 并行遍历（Concurrent Iterations）
+
+有时，你想遍历一列Promise，并针对所有这些Promise执行某些任务，就像对同步的`array`一样（比如，`forEach(..)`，`map(..)`，`some(..)`和`every(..)`）。如果对每个promise执行的任务是严格同步的，这几个方法就可以了，正如我们之前代码中用到的`forEach(..)`一样。
+
+但如果任务是异步的，或者应该并发执行，那么你可以使用库提供的这些实体函数的异步版本。
+
+例如，考虑一个异步的`map(..)`实体函数，它接受一个`array`值（可能是Promise，也可能是其它）和一个针对每个值的执行函数（任务）。`map(..)`函数本身返回一个promise，它的fulfillment值是一个`array`，保存着（以同样的映射顺序）每个任务返回的fulfillment值：
+
+```javascript
+if (!Promise.map) {
+    Promise.map = function(vals,cb) {
+        // new promise that waits for all mapped promises
+        return Promise.all(
+            // note: regular array `map(..)`, turns
+            // the array of values into an array of
+            // promises
+            vals.map( function(val){
+                // replace `val` with a new promise that
+                // resolves after `val` is async mapped
+                return new Promise( function(resolve){
+                    cb( val, resolve );
+                } );
+            } )
+        );
+    };
+}
+```
+**注意：** 在这个`map(..)`实现中，你无法发出异步rejection信号，但是如果在映射回调（`cb(..)`）内部发生同步异常/错误，`Promise.map(..)`返回的主promise就会reject。
+
+让我们举例说明一下多个Promise（而不是简单值）时的`map(..)`用法：
+
+```javascript
+var p1 = Promise.resolve( 21 );
+var p2 = Promise.resolve( 42 );
+var p3 = Promise.reject( "Oops" );
+
+// double values in list even if they're in
+// Promises
+Promise.map( [p1,p2,p3], function(pr,done){
+    // make sure the item itself is a Promise
+    Promise.resolve( pr )
+    .then(
+        // extract value as `v`
+        function(v){
+            // map fulfillment `v` to new value
+            done( v * 2 );
+        },
+        // or, map to promise rejection message
+        done
+    );
+} )
+.then( function(vals){
+    console.log( vals );    // [42,84,"Oops"]
+} );
+```
+
+## Promise API 回顾（Promise API Recap）
+-----
+
+让我们回顾一下本章中零零碎碎展开的ES6 `Promise` API。
+
+**注意：** 下面的API只是原生ES6才有的，但仍有一些兼容规范的polyfill（不只是简单地扩展Promise库），它们可以定义`Promise`及其所有相关行为，以便于在pre-ES6（ES6前）的浏览器中使用原生的Promise。其中一个polyfill是“Native Promise Only”（[http://github.com/getify/native-promise-only](http://github.com/getify/native-promise-only)），我写的！
+
+### new Promise(..) Constructor
+
+*暴露构造函数（ revealing constructor ）*（见 **Promise "Events"** 一节）必须配合`new`使用，必须提供一个同步/立即调用的回调。这个函数传入两个回调充当promise的解析功能。我们通常将它们标为`resolve(..)`和`reject(..)`：
+
+```javascript
+var p = new Promise( function(resolve,reject){
+    // `resolve(..)` to resolve/fulfill the promise
+    // `reject(..)` to reject the promise
+} );
+```
+
+`reject(..)`只是简单地reject该promise，但`resolve(..)`根据传入的值，既可以fulfil该promise，也可以reject该promise。如果传入`resolve(..)`的是个立即的，非Promise，非thenable值，之后就会以该值fulfill该promise。
+
+但是如果`resolve(..)`传入的是个真正的Promise或者thenable值，那么该值就会被递归拆析，promise会接收最终的解析结果/状态。
+
+### Promise.resolve(..) and Promise.reject(..)
+
+创建一个已经rejected的Promise的简写形式为`Promise.reject(..)`，因此这两个promise是等价的：
+
+```javascript
+var p1 = new Promise( function(resolve,reject){
+    reject( "Oops" );
+} );
+
+var p2 = Promise.reject( "Oops" );
+```
+
+类似于`Promise.reject(..)`，`Promise.resolve(..)`通常用来创建一个已经fulfilled的Promise。然而，`Promise.resolve(..)`同样也拆析thenable值（正如多次讨论的那样）。在那种情况下，返回的Promise接收传入的thenable的最终解析结果，既可能是fulfillment，又可能是rejection：
+
+```javascript
+var fulfilledTh = {
+    then: function(cb) { cb( 42 ); }
+};
+var rejectedTh = {
+    then: function(cb,errCb) {
+        errCb( "Oops" );
+    }
+};
+
+var p1 = Promise.resolve( fulfilledTh );
+var p2 = Promise.resolve( rejectedTh );
+
+// `p1` will be a fulfilled promise
+// `p2` will be a rejected promise
+```
+
+记住，如果你传入一个真正的Promise，`Promise.resolve(..)`什么也不会做；它只会直接返回该值。因此如果恰巧是个真正的Promise，而你不知道是何种值时，调用`Promise.resolve(..)`不会有开销。
+
+### then(..) and catch(..)
+
+每个Promise实例（**不是** `Promise` API命名空间）都有`then(..)`和`catch(..)`方法，允许为Promise注册fulfillment和rejection处理函数。一旦Promise解析完，其中一个就会被调用，并且是异步调用的（见第一章的"Jobs"）。
+
+`then(..)`接收一个或两个参数，第一个作为fulfillment回调，第二个作为rejection回调。如果省略任一个或者传入一个非函数值，就会用相应的默认函数代替。默认的fulfillment回调只是简单的传递信息，而默认的rejection回调简单地重新抛出（传播）接收到的错误原因。
+
+`catch(..)`只接收rejection回调作为参数，会自动替换上默认fulfillment回调。换句话说，等价于`then(null,..)`：
+
+```javascript
+p.then( fulfilled );
+
+p.then( fulfilled, rejected );
+
+p.catch( rejected ); // or `p.then( null, rejected )`
+```
+
+`then(..)`和`catch(..)`同样会创建并返回一个新的promise，可用来表示Promise的链式流控制。
+
+如果fulfillment或者rejection回调有异常抛出，则返回的promise就被reject了。如果任一个回调返回一个立即的，非Promise，非thenable值，则那个值就被设为返回promise的fulfillment。如果fulfillment处理函数指定返回了一个promise或者thenable值，则那个值会被拆析并成为返回promise的解析结果。
 
 
 
