@@ -437,7 +437,7 @@ var v2 = [ "Hello", "World" ];
 
 尽管我们已经在代码中很清楚地展开探究了*未来值*和*完成事件*，我们还不是很清楚Promise是如何设计的，能够解决我们在第二章“信任问题”一节中提出的所有*控制权反转*信任问题。只要稍加深究，我们就能在异步编程时重拾第二章中失去的信心！
 
-让我们回顾一下只采用回调编程的信任问题。当传递一个回调给实体函数`foo(..)`，可能：
+让我们回顾一下只采用回调编程的信任问题。当传递一个回调给实用函数`foo(..)`，可能：
 
 + 太早调用回调
 + 太晚调用回调（或者从不调用）
@@ -726,7 +726,7 @@ Promise.resolve( p )
 
 `Promise.resolve(..)`会接收任何thenable，然后将其拆析（unwrap）直至获得一个非thenable值。但是从`Promise.resolve(..)`，你会得到一个真正的promise，**一个你可以信赖的promise**。如果你传入的已经是个真正的promise，只会原样返回，因此，通过`Promise.resolve(..)`过滤来获取信任一点坏处也没有。
 
-因此，假设我们正在调用`foo(..)`实体函数，我们不确定它的返回值是否是正常的Promise，但我们知道它至少是个thenable。`Promise.resolve(..)`会给我们一个值得信赖的Promise包装用作链式调用：
+因此，假设我们正在调用`foo(..)`实用函数，我们不确定它的返回值是否是正常的Promise，但我们知道它至少是个thenable。`Promise.resolve(..)`会给我们一个值得信赖的Promise包装用作链式调用：
 
 ```javascript
 // don't just do this:
@@ -855,7 +855,7 @@ p.then( function(v){
 
 当然，这些例子中步骤之间传递的值是可选的。如果你不返回一个显式的值，会假定有个隐式的`undefined`，并且promise还是以同样的方式串起来。每个Promise的解析项只是进行到下一步的信号。
 
-为了更进一步说明链式，让我们创建一个通用实体函数，用来生成延时Promise，使之能够多步复用：
+为了更进一步说明链式，让我们创建一个通用实用函数，用来生成延时Promise，使之能够多步复用：
 
 ```javascript
 function delay(time) {
@@ -903,7 +903,7 @@ function request(url) {
 }
 ```
 
-我们首先定义了一个`request(..)`实体，用来构建一个promise代表`ajax(..)`调用的完成：
+我们首先定义了一个`request(..)`实用函数，用来构建一个promise代表`ajax(..)`调用的完成：
 
 ```javascript
 request( "http://some.url.1/" )
@@ -915,7 +915,7 @@ request( "http://some.url.1/" )
 } );
 ```
 
-**注意：** 开发者常遇到的一种情形是，他们想采用一些本身不支持Promise（Promise-enabled）的第三方实体（比如此处的`ajax(..)`，它需要一个回调函数）来实现类Promise（Promise-aware）的异步流控制。尽管原生的ES6 `Promise`机制无法为我们自动提供这种模式，但是所有的Promise库会提供。通常称这个过程为“提升（lifting）”或者“promise化（promisifying）” 或者其它变种。我们之后会讨论这一技术。
+**注意：** 开发者常遇到的一种情形是，他们想采用一些本身不支持Promise（Promise-enabled）的第三方实用函数（比如此处的`ajax(..)`，它需要一个回调函数）来实现类Promise（Promise-aware）的异步流控制。尽管原生的ES6 `Promise`机制无法为我们自动提供这种模式，但是所有的Promise库会提供。通常称这个过程为“提升（lifting）”或者“promise化（promisifying）” 或者其它变种。我们之后会讨论这一技术。
 
 使用返回Promise（Promise-returning）的`request(..)`，我们使用第一个URL调用它来隐式地创建了链的第一步，然后用第一个`then(..)`链到了返回的promise上。
 
@@ -1524,9 +1524,9 @@ if (!Promise.first) {
 
 有时，你想遍历一列Promise，并针对所有这些Promise执行某些任务，就像对同步的`array`一样（比如，`forEach(..)`，`map(..)`，`some(..)`和`every(..)`）。如果对每个promise执行的任务是严格同步的，这几个方法就可以了，正如我们之前代码中用到的`forEach(..)`一样。
 
-但如果任务是异步的，或者应该并发执行，那么你可以使用库提供的这些实体函数的异步版本。
+但如果任务是异步的，或者应该并发执行，那么你可以使用库提供的这些实用函数的异步版本。
 
-例如，考虑一个异步的`map(..)`实体函数，它接受一个`array`值（可能是Promise，也可能是其它）和一个针对每个值的执行函数（任务）。`map(..)`函数本身返回一个promise，它的fulfillment值是一个`array`，保存着（以同样的映射顺序）每个任务返回的fulfillment值：
+例如，考虑一个异步的`map(..)`实用函数，它接受一个`array`值（可能是Promise，也可能是其它）和一个针对每个值的执行函数（任务）。`map(..)`函数本身返回一个promise，它的fulfillment值是一个`array`，保存着（以同样的映射顺序）每个任务返回的fulfillment值：
 
 ```javascript
 if (!Promise.map) {
@@ -1651,7 +1651,212 @@ p.catch( rejected ); // or `p.then( null, rejected )`
 
 如果fulfillment或者rejection回调有异常抛出，则返回的promise就被reject了。如果任一个回调返回一个立即的，非Promise，非thenable值，则那个值就被设为返回promise的fulfillment。如果fulfillment处理函数指定返回了一个promise或者thenable值，则那个值会被拆析并成为返回promise的解析结果。
 
+### Promise.all([ .. ]) and Promise.race([ .. ])
 
+ES6 `Promise` API中的静态函数`Promise.all([ .. ])`和`Promise.race([ .. ])`，都创建了一个Promise作为返回值。那个promise的解析结果完全决定于你传入的promise数组。
+
+对于`Promise.all([ .. ])`而言，若要返回的promise fulfill，则传入的所有promise必须都fulfill。如果任一个promise被reject了，则主promise也立即被reject（忽略其它promise的结果）。对于fulfillment而言，你传入的`array`必须都是fulfillment的promise。对于rejection而言，只要有一个rejection的promise即可。这种模式通常称为“门（gate）”：在门打开前，所有人必须都到场。
+
+对于`Promise.race([ .. ])`，只有第一个解析的promise（fulfillment或者rejection）“胜出”，解析结果无论是什么，都会成为返回的promise的解析结果。这种模式通常称为“闩（latch）”：第一个打开闩的人通过。考虑如下代码：
+
+```javascript
+var p1 = Promise.resolve( 42 );
+var p2 = Promise.resolve( "Hello World" );
+var p3 = Promise.reject( "Oops" );
+
+Promise.race( [p1,p2,p3] )
+.then( function(msg){
+    console.log( msg );     // 42
+} );
+
+Promise.all( [p1,p2,p3] )
+.catch( function(err){
+    console.error( err );   // "Oops"
+} );
+
+Promise.all( [p1,p2] )
+.then( function(msgs){
+    console.log( msgs );    // [42,"Hello World"]
+} );
+```
+
+**警告：** 如果空`array`传入`Promise.all([ .. ])`，则立即fulfill，但是`Promise.race([ .. ])`会永远挂起，从不解析。
+
+ES6 的`Promise`相当简单直接。基本上足够满足绝大多数异步需求了，在重排代码，使之从地狱回调转向其它更好的方式时，是个不错的选择。
+
+但是在app中，有些复杂的异步需求，Promise处理的不是很好。在下一节，我们将会仔细探究这些局限性，并以此作为Promise库跟进的动力。
+
+## Promise的局限（Promise Limitations）
+
+本节讨论的所有细节在本章中都略微提及了，让我们专门来回顾一下这些不足。
+
+### 序列化错误处理（Sequence Error Handling）
+
+本章早些时候，我们已经仔细讨论过Promise式的错误处理了。Promise设计方式的不足--尤其是成链的方式--很容易造成陷阱，即Promise链中的错误可能被静默忽略。
+
+但是，关于Promise 错误，还需要考虑其它一些东西。因为Promise链只是将成员promise连在一起，没有实体（entity）能够将整个链视作单个个体，这意味着没有外部方法能够监听可能发生的错误。
+
+如果你创建了一个没有错误处理的Promise链，那么链中的任何一个错误都会沿着链无限传播下去，直至被监听（通过在某步注册rejection处理函数）。因此，在那种特定情况下，有一个指向链中的最后一个promise就行了（以下代码中是`p`）的引用，因为可以在那注册一个rejection处理函数，如果有任何错误传过来，就会被通知到。
+
+```javascript
+// `foo(..)`, `STEP2(..)` and `STEP3(..)` are
+// all promise-aware utilities
+
+var p = foo( 42 )
+.then( STEP2 )
+.then( STEP3 );
+```
+
+尽管看起来有点迷糊，此处的`p`并不指向链中的第一个promise(`foo(42)`调用返回的)，而是指向最后一个promise，`then(STEP3)`调用返回的。
+
+另外，该promise链中没有一步监听错误处理，意味着你可以在`p`上注册一个rejection错误处理函数，如果链中发生任何错误，rejection注册函数就会被通知到：
+
+```javascript
+p.catch( handleErrors );
+```
+
+但是如果链中的每一步有自己的错误处理函数（或许被隐藏/抽象，你看不到），你的`handleErrors(..)`就不会被通知到。这可能是你想要的--毕竟，它是一个“rejection处理函数”--也可能不是你想要的。完全丧失接收通知的能力是个不足之处，在某些情况下限制了功能实现。
+
+这一不足和现有的`try..catch`是一样的，它能够捕获异常并简单地掩盖异常。因此，这不是**Promise独有的**不足，但我们希望有一些解决方案。
+
+不幸的是，在Promise链中，无法保持对中间步骤的引用，因此，没有这些引用的话，就无法附上错误处理函数来可靠地监听错误。
+
+### 单个值（Single Value）
+
+从定义上来说，Promise只有单个fulfillment值或者rejection原因短语，在简单例子中，这不是个大问题。但在更复杂的场景中，你就会觉得捉襟见肘了。
+
+通常的建议是构建一个值包装器（比如一个`object`或者`array`）来包含多个值。这种方法有效，但是在每步中包装、拆解信心相当尴尬和繁琐。
+
+### 分离值（Splitting Values）
+
+有时你可以把这当做一个信号，即应该讲问题分解为多个Promise。
+
+假设有一个实用函数`foo(..)`，它异步生成两个值（`x`和`y`）。
+
+```javascript
+function getY(x) {
+    return new Promise( function(resolve,reject){
+        setTimeout( function(){
+            resolve( (3 * x) - 1 );
+        }, 100 );
+    } );
+}
+
+function foo(bar,baz) {
+    var x = bar * baz;
+
+    return getY( x )
+    .then( function(y){
+        // wrap both values into container
+        return [x,y];
+    } );
+}
+
+foo( 10, 20 )
+.then( function(msgs){
+    var x = msgs[0];
+    var y = msgs[1];
+
+    console.log( x, y );    // 200 599
+} );
+```
+
+首先，让我们重排一下`foo(..)`的返回的，以便我们在传递值时，不需要将`x`和`y`包进一个`array`中。可以讲每个值包到自己的promise中：
+
+```javascript
+function foo(bar,baz) {
+    var x = bar * baz;
+
+    // return both promises
+    return [
+        Promise.resolve( x ),
+        getY( x )
+    ];
+}
+
+Promise.all(
+    foo( 10, 20 )
+)
+.then( function(msgs){
+    var x = msgs[0];
+    var y = msgs[1];
+
+    console.log( x, y );
+} );
+```
+
+一个promise `array`真的比通过单个promise传递的`array`值好吗？从句法结构上来看，并没有多少改善。
+
+但这种方式更符合Promise的设计理念。将`x`和`y`的计算分到不同的函数中去，这样将来更容易重构。
+
+让调用代码决定如何安排这两个promise，这种方式更清晰灵活--此处采用`Promise.all([ .. ])`，但当然不是唯一的选项--而不是把`foo(..)`内的细节抽离出来。
+
+### 打开/展开参数（Unwrap/Spread Arguments）
+
+`var x = ..`和`var y = ..`赋值操作仍然是很笨拙的开销。我们可以在帮助函数中采用一些小的功能性手段（致敬Reginald Braithwaite, @raganwald on Twitter）：
+
+```javascript
+function spread(fn) {
+    return Function.apply.bind( fn, null );
+}
+
+Promise.all(
+    foo( 10, 20 )
+)
+.then(
+    spread( function(x,y){
+        console.log( x, y );    // 200 599
+    } )
+)
+```
+
+这种更好一点！当然，你可以写成内联函数样式，避免额外的帮助函数：
+
+```javascript
+Promise.all(
+    foo( 10, 20 )
+)
+.then( Function.apply.bind(
+    function(x,y){
+        console.log( x, y );    // 200 599
+    },
+    null
+) );
+```
+
+这种把戏可能很简洁，但是ES6有个更好的方案：解构。数组解构赋值的形式看起来是这样子的：
+
+```javascript
+Promise.all(
+    foo( 10, 20 )
+)
+.then( function(msgs){
+    var [x,y] = msgs;
+
+    console.log( x, y );    // 200 599
+} );
+```
+
+但最好的是，ES6提供数组参数解构形式：
+
+```javascript
+Promise.all(
+    foo( 10, 20 )
+)
+.then( function([x,y]){
+    console.log( x, y );    // 200 599
+} );
+```
+
+现在，我们已经奉行了一个Promise一个值（one-value-per-Promise）的准则，但同时将支持样板减到最少！
+
+**注意：** 要想了解更多关于ES6解构形式的信息，请看本系列的*ES6 & Beyond*。
+
+### 单次解析（Single Resolution）
+
+Promise最本质的行为之一就是Promise只能被解析一次（fulfillment或者rejection）。对于许多异步使用场景而言，你只需获取一次值，因此这种形式效果很好。
+
+但有许多异步场景适用于另一种不同的模型--即更类似于事件或者数据流。从表面上看，就算可以，也并不清楚Promise能够在多大程度上适用于这些使用场景。除了Promise之外，没有重大的抽象。
 
 
 
