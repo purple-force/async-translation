@@ -1593,7 +1593,7 @@ var p = new Promise( function(resolve,reject){
 } );
 ```
 
-`reject(..)`只是简单地reject该promise，但`resolve(..)`根据传入的值，既可以fulfil该promise，也可以reject该promise。如果传入`resolve(..)`的是个立即的，非Promise，非thenable值，之后就会以该值fulfill该promise。
+`reject(..)`只是简单地reject该promise，但`resolve(..)`根据传入的值，既可以fulfill该promise，也可以reject该promise。如果传入`resolve(..)`的是个立即的，非Promise，非thenable值，之后就会以该值fulfill该promise。
 
 但是如果`resolve(..)`传入的是个真正的Promise或者thenable值，那么该值就会被递归拆析，promise会接收最终的解析结果/状态。
 
@@ -1687,7 +1687,7 @@ ES6 的`Promise`相当简单直接。基本上足够满足绝大多数异步需�
 
 ## Promise的局限（Promise Limitations）
 
-本节讨论的所有细节在本章中都略微提及了，让我们专门来回顾一下这些不足。
+本节讨论的所有细节在本章中都略微提及了，让我们专门回顾一下这些不足。
 
 ### 序列化错误处理（Sequence Error Handling）
 
@@ -1724,11 +1724,11 @@ p.catch( handleErrors );
 
 从定义上来说，Promise只有单个fulfillment值或者rejection原因短语，在简单例子中，这不是个大问题。但在更复杂的场景中，你就会觉得捉襟见肘了。
 
-通常的建议是构建一个值包装器（比如一个`object`或者`array`）来包含多个值。这种方法有效，但是在每步中包装、拆解信息相当别扭和繁琐。
+通常的建议是构建一个值包装器（比如一个`object`或者`array`）来包含多个值。这种方法有效，但是在每步中包装、拆析信息相当别扭和繁琐。
 
 #### 分离值（Splitting Values）
 
-有时你可以把这当做一个信号，即应该讲问题分解为多个Promise。
+有时你可以把这当做一个信号，即应该将问题分解为多个Promise。
 
 假设有一个实用函数（utility）`foo(..)`，它异步生成两个值（`x`和`y`）。
 
@@ -1760,7 +1760,7 @@ foo( 10, 20 )
 } );
 ```
 
-首先，让我们重排一下`foo(..)`的返回的，以便我们在传递值时，不需要将`x`和`y`包进一个`array`中。可以讲每个值包到自己的promise中：
+首先，让我们重排一下`foo(..)`的返回值，以便我们在传递值时，不需要将`x`和`y`包进一个`array`中。可以将每个值包到自己的promise中：
 
 ```javascript
 function foo(bar,baz) {
@@ -1897,11 +1897,11 @@ click( "#mybtn", function(evt){
 
 但是，在事件处理函数中定义整个Promise链，除了难看以外，从某种角度来说，这种设计违反了关注/功能分离（separation of concerns/capabilities，SoC）的理念。你可能想在代码的其它地方定义事件处理函数，不同于定义事件响应（Promise链）所在的位置。没采用辅助机制的话，这种模式相当别扭。
 
-**注意：** 另一种阐述这种局限的方式是，要是我们能构建一种让Promise链订阅的“监听器（observable）”就好了。已经有库实现了这些抽象（比如RxJS--[http://rxjs.codeplex.com/](http://rxjs.codeplex.com/)），但是这些抽象很臃肿，以至于你再也看不清Promise的本质了。这些臃肿的抽象带来了一些需要注意问题，比如这些机制（不包括Promise）是否和Promise设计的那样*值得信赖*。我们会在附录B中再讨论“Observable”模式。
+**注意：** 另一种阐述这种局限的方式是，要是我们能构建一种让Promise链订阅的“监听器（observable）”就好了。已经有库实现了这些抽象（比如RxJS--[http://rxjs.codeplex.com/](http://rxjs.codeplex.com/)），但是这些抽象很臃肿，以至于你再也看不清Promise的本质了。这些臃肿的抽象带来了一些需要注意的问题，比如这些机制（不包括Promise）是否和Promise设计的那样*值得信赖*。我们会在附录B中再讨论“Observable”模式。
 
 ### 惯性（Inertia）
 
-在代码中开始使用Promise的一个具体障碍是，现存的代码都不是Promise意识的（Promises-aware ）。如果有许多基于回调的代码，那么以同样方式编程更容易。
+在代码中开始使用Promise的一个具体障碍是，现存的代码都不是基于Promise（Promises-aware ）。如果有许多基于回调的代码，那么以同样方式编程更容易。
 
 “运转中（采用回调）的代码库会继续运转（采用回调），除非聪明的、具有Promise意识的开发者采取行动”。
 
@@ -1927,9 +1927,9 @@ foo( 11, 31, function(err,text) {
 } );
 ```
 
-是否立刻就能看出第一步应该干什么，即如何将这个基于回调的代码转为基于Promise的代码？取决于你的经验。你使用Promise的事件越多，就会越觉得自然。Promise并没有宣传说具体该怎么做--没有放之四海皆准的答案--因此责任在你。
+是否立刻就能看出第一步应该干什么，即如何将这个基于回调的代码转为基于Promise的代码？取决于你的经验。你使用Promise的实践越多，就会越觉得自然。Promise并没有宣称具体该怎么做--没有放之四海皆准的答案--因此责任在你。
 
-正如我们之前讨论过的一样，我们确实需要一个基于Promise，而不是回调的Ajax实用程序，我们可以称之为`request(..)`。你可以向我们一样实现自己的方法。但是为每个基于回调的实用程序手动定义Promise式的包装器开销很大，你就更不会选择基于Promise的重构了。
+正如我们之前讨论过的一样，我们确实需要一个基于Promise，而不是回调的Ajax实用函数，我们可以称之为`request(..)`。你可以像我们一样实现自己的方法。但是为每个基于回调的实用函数手动定义Promise式的包装器开销很大，你就更不会选择基于Promise的重构了。
 
 对于这一不足，Promise没有直接的答案。然而，绝大多数Promise库确实提供这样的一个辅助函数。但就算没有这样的库，辅助函数也可能像这样：
 
@@ -1958,7 +1958,7 @@ if (!Promise.wrap) {
 }
 ```
 
-OK，这仅仅是个小小的实验程序。然而，尽管看起来有点吓人，它并不是想得那么糟。它接收一个函数，该函数期望一个错误优先式的回调作为最后一个参数，返回一个自动创建并返回promise的新函数
+OK，这仅仅是个小小的实验程序。然而，尽管看起来有点吓人，但它并不是你想得那么糟。它接收一个函数，该函数期望一个错误优先式的回调作为最后一个参数，返回一个自动创建并返回promise的新函数
 ，通过将其连到Promise fulfillment/rejection上来替换掉你的回调函数。
 
 不要再浪费时间讨论`Promise.wrap(..)`辅助函数是如何工作的，让我们看下如何使用吧：
@@ -1971,15 +1971,15 @@ request( "http://some.url.1/" )
 ..
 ```
 
-哇哦，箱单简单！
+哇哦，相当简单！
 
-`Promise.wrap(..)`并不生成一个Promise。它生成一个能生成promise的函数。从某种意义上来说，Promise生成函数可以被视作“Promise工厂”。我提议采用“promisory”来为其命名（"Promise" + "factory"）。
+`Promise.wrap(..)`并不生成一个Promise。它返回一个能生成promise的函数。从某种意义上来说，Promise生成函数可以被视作“Promise工厂”。我提议采用“promisory”来为其命名（"Promise" + "factory"）。
 
 将一个期望回调的函数包装成一个Promise式的函数的行为有时称为“提升（lifting）”或者“promise化（promisifying）”。但对于结果函数，除了叫“提升函数（lifted function）”，似乎没有一个标准的术语来称呼它，因此我更喜欢“promisory”，因为它更具描述性。
 
 **注意：** Promisory并不是个拼凑的术语。它是个真正的词，定义是包含或者传递一个promise。那正是这些函数所做的，因此这是一个完美匹配的术语！
 
-因此，`Promise.wrap(ajax)`生成了yield称为`request(..)`的`ajax(..)` promisory，那个promisory味Ajax响应生成Promise。
+因此，`Promise.wrap(ajax)`生成了称为`request(..)`的`ajax(..)` promisory，那个promisory为Ajax响应生成Promise。
 
 那么回到早先的例子，我们需要为`ajax(..)`和`foo(..)`创建promisory：
 
@@ -2019,7 +2019,7 @@ betterFoo( 11, 31 )
 );
 ```
 
-当然，尽管我们重构了`foo(..)`来使用新的`request(..)` promisory，但是我们也可以只将`foo(..)`本身变成一个promisory ，而不是保持在基于回调状态并且需要创建和使用随后的`betterFoo(..)` promisory。这仅取决于`foo(..)`是否需要保持在基于回调的状态来兼容代码库的其它部分。
+当然，尽管我们重构了`foo(..)`来使用新的`request(..)` promisory，但是我们也可以只将`foo(..)`本身变成一个promisory ，而不是保持基于回调的状态并且需要创建和使用随后的`betterFoo(..)` promisory。这仅取决于`foo(..)`是否需要保持在基于回调的状态来兼容代码库的其它部分。
 
 考虑如下代码：
 
@@ -2066,7 +2066,7 @@ p.then( function(){
 
 "超时"是在promise `p`的外部的，因此超时后，`p`本身会继续运行，这不是我们想要的。
 
-一种选择是侵入性地定义解析回调：
+一种选择是侵入性地（invasively）定义解析回调：
 
 ```javascript
 var OK = true;
@@ -2099,7 +2099,7 @@ p.then( function(){
 
 **注意：** 我的“异步队列（asynquence）”Promise抽象库正好提供了这样一个抽象和队列的`abort()`功能。将会在附录A中讨论。
 
-单个Promise并不是真正的流控制机制（至少从有意义方面来说不是），这正是*可取消性（cancelation）*所指的那样；这就是Promise 可取消性让人觉得别扭的原因。
+单个Promise并不是真正的流控制机制（至少从是否有意义方面来说不是），这正是*可取消性（cancelation）*所指的那样；这就是Promise 可取消性让人觉得别扭的原因。
 
 与此相反，多个Promise链在一起--我称为一个“序列”--才是流控制的表示形式，因此，在这个抽象层面定义可取消性才比较合适。
 
@@ -2117,7 +2117,7 @@ p.then( function(){
 
 坦白来说，这就像是苹果和橘子的比较，因此问的问题可能就是错的。你应该问的是，手动部署同样效果防御代码的回调，是否比Promise实现更快些。
 
-如果Promise有正当的性能不足，更多的在于Promise不提供是否需要信任保护的选项--Promise总是提供信任保护。
+如果Promise有合理的性能局限，更多的在于Promise不提供是否需要信任保护的选项--Promise总是提供信任保护。
 
 然而，如果我们承认Promise通常比对等的non-Promise、non-trustable回调*稍微慢一点*--假设某些地方你觉得缺乏信任是合理的--那不就意味着应当完全避免使用Promise，犹如你的整个应用完全由尽可能快的代码驱动吗？
 
