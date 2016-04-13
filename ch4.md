@@ -151,5 +151,179 @@ res.value;      // 42
 
 ##### 两个问题的故事（Tale of Two Questions）
 
-事实上，
+事实上，主要关注的代码会影响你对是否有感观上不匹配的判断。
+
+只考虑生成器代码：
+
+```javascript
+var y = x * (yield);
+return y;
+```
+
+这里**第一个**`yield`简单地*问一个问题*：“我应该在这里插入哪个值？”
+
+谁来回答这个问题呢？好吧，**第一个**`next()`已经让生成器运行到这里了，因此，很明显无法回答这个问题。因此**第二个**`next()`调用必须回答由**第一个**`yield`提出的问题。
+
+看到不匹配了吗--第二个对第一个？
+
+让我们变换一下角度。不要从生成器角度看，而从迭代器的角度看。
+
+为了恰当地说明这个角度，我们也需要解释下信息可以向两个方向传递--作为表达式，`yield..`可以响应`next(..)`调用，向外发出信息，`next(..)`也可以将值发送给暂停的`yield`表达式。考虑如下代码，稍微作了修改：
+
+```javascript
+function *foo(x) {
+    var y = x * (yield "Hello");    // <-- yield a value!
+    return y;
+}
+
+var it = foo( 6 );
+
+var res = it.next();    // first `next()`, don't pass anything
+res.value;              // "Hello"
+
+res = it.next( 7 );     // pass `7` to waiting `yield`
+res.value;              // 42
+```
+
+**在生成器执行期间**，`yield..`和`next(..)`对一起，充当了两路信息传递系统。
+
+那么，只看*迭代器*代码：
+
+```javascript
+var res = it.next();    // first `next()`, don't pass anything
+res.value;              // "Hello"
+
+res = it.next( 7 );     // pass `7` to waiting `yield`
+res.value;              // 42
+```
+
+**注意：** 我们没有向第一个`next()`调用传递值，那是有目的的。只有暂停的`yield`才能接收`next(..)`传递的值，当我们调用第一个`next()`时，**没有暂停的**`yield`来接收值。规范和所有兼容的浏览器只是静默的**丢弃**任何传入第一个`next()`的值。
+
+第一个`next()`调用（没有传值给它）只是简单地*问了个问题*：“`*foo(..)`生成器*下一个*该给我的值是什么？”谁来回答这个问题呢？第一个`yield "hello"`表达式。
+
+看到了吗？没有不匹配。
+
+`yield`和`next(..)`调用之间有没有不匹配，取决于你认为*谁*来回答这个问题。
+
+但等等！相比于`yield`语句，仍然多一个`next()`。因此最后一个`it.next(7)`调用再次发问，生成器产生的下一个值是什么。但是没有剩余的`yield`语句来回答了，不是吗？那么谁来回答呢？
+
+`return`语句回答这个问题！
+
+要是生成器中**没有**`return`--`return`不再像普通函数那样显得十分必要了--总有个假定的/隐式地`return;`（即`return undefined;`），充当了默认回答最后`it.next(7)`调用提出的问题的角色。
+
+这些问题和回答--采用`yield`和`next(..)`两路信息传递--相当强大，但是这些机制如何和异步流控制连接在一起，还不是很清楚。我们会明白的！
+
+### 多个迭代器（Multiple Iterators）
+
+可能出现一种语法使用情况，即当你使用一个*迭代器*控制生成器时，你要控制的是声明的生成器函数本身。但很容易忽略些细微之处：每次构建一个*迭代器*，你都隐式地构建了一个生成器实例，由那个*迭代器*控制。
+
+你可以同时让同一个生成器的多个实例同时运行，它们之间甚至可以交互：
+
+```javascript
+function *foo() {
+    var x = yield 2;
+    z++;
+    var y = yield (x * z);
+    console.log( x, y, z );
+}
+
+var z = 1;
+
+var it1 = foo();
+var it2 = foo();
+
+var val1 = it1.next().value;            // 2 <-- yield 2
+var val2 = it2.next().value;            // 2 <-- yield 2
+
+val1 = it1.next( val2 * 10 ).value;     // 40  <-- x:20,  z:2
+val2 = it2.next( val1 * 5 ).value;      // 600 <-- x:200, z:3
+
+it1.next( val2 / 2 );                   // y:300
+                                        // 20 300 3
+it2.next( val1 / 4 );                   // y:10
+                                        // 200 10 3
+```
+
+**警告：** 同一个生成器的多个实例并发运行，这种方式最常见的用法不是这样交互的，而是生成器生成自己的值，或许来自某些不相关的独立资源，不需要输入。我们会在下一节讨论更多关于值生成的内容。
+
+让我们简单过下流程：
+
+1. `*foo()`的两个实例同时启动，并且两个`next()`调用分别从`yield 2`语句中得到为`2`的`value`。
+2. `val2 * 10`是`2 * 10`，被传入第一个生成器实例`it1`，因此`x`获得值`20`。`z`从`1`增加到`2`，之后`20*2`被`yield`出来，将`val1`设为`40`。
+3. `val1 * 5`是`40 * 5`，被传入第二个生成器实例`it2`，因此`x`获得值`200`。`z`从`2`增加到`3`，之后`200*3`被`yield`出来，将`val2`设为`600`。
+4. `val2 / 2`是`600 / 2`，被传入第一个生成器实例`it1`，因此`y`获得值`300`，之后打印出`20 300 3`，分别对应于`x y z`。
+5. `val1 / 4`是`40 / 4`，被传入第二个生成器实例`it2`，因此`y`获得值`10`，之后打印出`20 10 3`，分别对应于`x y z`。
+
+这是在你心里运行的一个“有趣”的例子。你弄清楚了吗？
+
+#### 交叉（Interleaving）
+
+回想下第一章中“Run-to-completion”一节的场景：
+
+```javascript
+var a = 1;
+var b = 2;
+
+function foo() {
+    a++;
+    b = b * a;
+    a = b + 3;
+}
+
+function bar() {
+    b--;
+    a = 8 + b;
+    b = a * 2;
+}
+```
+
+对于普通JS函数，当然`foo()`可以先运行完，`bar()`也可以先运行完，但是`foo()`不能将内部的语句穿插到`bar()`中。因此，之前的程序只能有两个可能结果。
+
+然而，对于生成器，很明显，交叉是可能的（甚至在语句中）：
+
+```javascript
+var a = 1;
+var b = 2;
+
+function *foo() {
+    a++;
+    yield;
+    b = b * a;
+    a = (yield b) + 3;
+}
+
+function *bar() {
+    b--;
+    yield;
+    a = (yield 8) + b;
+    b = a * (yield 2);
+}
+```
+
+根据控制`*foo()`和`*bar()`的*迭代器*调用的相对顺序不同，这个程序可能生成多个结果。换句话说，通过共享同一变量交叉两个生成器，实际上我们可以实现（以一种虚假的方式）第一章中理论上的“线程竞态”情形。
+
+首先，我们实现一个辅助函数`step(..)`，用来控制*迭代器*。
+
+```javascript
+function step(gen) {
+    var it = gen();
+    var last;
+
+    return function() {
+        // whatever is `yield`ed out, just
+        // send it right back in the next time!
+        last = it.next( last ).value;
+    };
+}
+```
+`step(..)`初始化生成器，生成自己的`it`*迭代器*，之后返回了一个函数，该函数单步推进`迭代器`。另外，之前`yield`出的值被传回*下一步*中。因此，
+
+
+
+
+
+
+
+
+
 
