@@ -413,6 +413,135 @@ gimmeSomething();       // 105
 
 生成一个随机数字序列并不是太合实际的例子。但要是你想从数据源生成记录呢？代码基本上差不多。
 
+事实上，这是一个很常见的设计模式，通常由迭代器解决。对于步进遍历一系列由发生器生成的值，*迭代器*是个定义良好的接口。JS中的迭代器接口，和其它绝大多数语言一样，每当你想要从发生器中取下一个值时，只需调用`next()`。
+
+对于数字序列发生器，我们可以实现标准的*迭代器*接口：
+
+```javascript
+var something = (function(){
+    var nextVal;
+
+    return {
+        // needed for `for..of` loops
+        [Symbol.iterator]: function(){ return this; },
+
+        // standard iterator interface method
+        next: function(){
+            if (nextVal === undefined) {
+                nextVal = 1;
+            }
+            else {
+                nextVal = (3 * nextVal) + 6;
+            }
+
+            return { done:false, value:nextVal };
+        }
+    };
+})();
+
+something.next().value;     // 1
+something.next().value;     // 9
+something.next().value;     // 33
+something.next().value;     // 105
+```
+
+**注意：** 我们会在"Iterables"一节中解释为什么这段代码中需要`[Symbol.iterator]: ..`部分。从语法上来说，此处有两个ES6特性。首先，`[..]`语法称为*计算属性名（computed property name）*。它是一种对象字面量的定义方式，指定一个表达式，并用表达式的结果作为属性名。其次，`Symbol.iterator`是ES6预定义的特殊`Symbol`值之一。
+
+`next()`调用返回一个包含两个属性的对象：`done`是个`boolean`值，表示*迭代器*的完成状态；`value`保存着迭代的值。
+
+ES6还加了`for..of`循环，这意味着可以通过原生的循环语法来自动处理标准的的*迭代器*:
+
+```javascript
+for (var v of something) {
+    console.log( v );
+
+    // don't let the loop run forever!
+    if (v > 500) {
+        break;
+    }
+}
+// 1 9 33 105 321 969
+```
+
+**注意：** 因为`something`*迭代器*总是返回`done:false`，这个`for..of`循环会永远运行，这就是我们放置一个`break`条件判断的原因。迭代器永不结束也没关系，但也有一些其它情况，比如*迭代器*会遍历一组有限数据集并且最终返回`done:true`。
+
+每次迭代，`for..of`循环自动调用`next()`--它并不会向`next()`中传递任何值--并且依据接收的`done:true`自动终止迭代。对于遍历数据集非常方便。
+
+当然，你也可以手动遍历迭代器，调用`next()`并检查`done:true`条件来判断何时停止：
+
+```javascript
+for (
+    var ret;
+    (ret = something.next()) && !ret.done;
+) {
+    console.log( ret.value );
+
+    // don't let the loop run forever!
+    if (ret.value > 500) {
+        break;
+    }
+}
+// 1 9 33 105 321 969
+```
+
+**注意：** 这种手动的`for`方法当然比`for..of`遍历难看，但是其优点是，如果需要，你可以向`next(..)`调用中传递值。
+
+除了实现自己的*迭代器*，JS（自ES6起）中许多内建的数据结构，比如`array`，同样有默认的*迭代器*：
+
+```javascript
+var a = [1,3,5,7,9];
+
+for (var v of a) {
+    console.log( v );
+}
+// 1 3 5 7 9
+```
+
+`for..of`循环请求`a`的迭代器，并自动使用它来遍历`a`的值。
+
+**注意：** 似乎ES6有个奇怪的遗漏，但是普通的`objects`没有像`array`一样的默认*迭代器*。原因超出了本文的范围。如果你只想遍历对象的属性（无法保证特定顺序），`Object.keys(..)`返回一个`array`，该`array`可以用作`for (var k of Object.keys(obj)) { ..`。这种`for..of`遍历对象的键和`for..in`遍历类似，除了`Object.keys(..)`不包含`[[Prototype]]`链的属性，而`for..in`包含。
+
+### Iterables
+
+例子中的`something`对象称为*迭代器*，因为它的接口中有`next()`方法。但另一个紧密相关的术语是*iterable*，它是一个`object`,**包含**能够迭代自己值的*迭代器*。
+
+自ES6起，从`iterable`得到*迭代器*的方法是`iterable`必须有一个函数，名称为特殊的ES6 symbol值`Symbol.iterator`。当这个函数调用的时候，它返回一个*迭代器*。尽管不是必须的，通常每次调用应该返回一个全新的*迭代器*。
+
+前面的`a`是个*iterable*。`fo..of`循环自动调用它的`Symbol.iterator`函数来构建一个*迭代器*。当然，我们也可以手动调用该函数，使用它返回的*迭代器*：
+
+```javascript
+var a = [1,3,5,7,9];
+
+var it = a[Symbol.iterator]();
+
+it.next().value;    // 1
+it.next().value;    // 3
+it.next().value;    // 5
+..
+```
+
+在之前定义`something`的代码中，你可能注意到这一行：
+
+```javascript
+[Symbol.iterator]: function(){ return this; }
+```
+
+这段有点混乱的代码是使`something`值--`something`*迭代器*的接口--也是一个*iterable*。之后，我们将`something`传入`for..of`循环：
+
+```javascript
+for (var v of something) {
+    ..
+}
+```
+
+`for..of`循环希望`something`是个*iterable*，因此它会寻找并调用`something`的`Symbol.iterator`函数。我们简单地定义函数为`return this`。因此，它只是简单地返回自身，`for..of`循环并不知情。
+
+
+
+
+
+
+
 
 
 
