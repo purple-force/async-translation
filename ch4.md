@@ -536,6 +536,401 @@ for (var v of something) {
 
 `for..of`循环希望`something`是个*iterable*，因此它会寻找并调用`something`的`Symbol.iterator`函数。我们简单地定义函数为`return this`。因此，它只是简单地返回自身，`for..of`循环并不知情。
 
+### 生成器 迭代器（Generator Iterator）
+
+让我们把注意力转回生成器，在*迭代器*背景下。生成器可视作值发生器，通过*迭代器*接口的`next()`调用，我们每次抽取一个值。
+
+因此，从技术上来说，生成器本身不是*iterable*，尽管很像--当你执行生成器的时候，会得到一个*迭代器*：
+
+```javascript
+function *foo(){ .. }
+
+var it = foo();
+```
+
+我们可以用生成器实现早先的`something`无限数值序列发生器，像这样：
+
+```javascript
+function *something() {
+    var nextVal;
+
+    while (true) {
+        if (nextVal === undefined) {
+            nextVal = 1;
+        }
+        else {
+            nextVal = (3 * nextVal) + 6;
+        }
+
+        yield nextVal;
+    }
+}
+``` 
+
+**注意：** 正常来说，`while..true`循环包含在JS程序中是一件很糟糕的事，至少在没有`break`或`return`时，因为会永远同步运行，阻塞/锁死浏览器UI。然而，在生成器中，如果有`yield`则完全没关系，因为生成器会在每次迭代时暂停，`yield`回主程序或者事件轮询队列。简单点，“生成器把`while..true`带回了JS编程！”
+
+是不是更简单明了了？因为生成器在每个`yield`处暂停，函数`*something()`状态（域）被保持，意味着整个调用过程中都不需要闭包样版来保存变量状态。
+
+不仅仅代码更简单了--我们不需要实现自己的*迭代器*接口--而且更合理，因为更清晰地表达了我们的意图。例如，`while..true`循环告诉我们生成器打算永远运行--只要我们持续要求，就能够持续生成值。
+
+现在，我们可以使用崭新的采用`for..of`循环的`*something()`生成器。你会发现工作原理基本一致。
+
+```javascript
+for (var v of something()) {
+    console.log( v );
+
+    // don't let the loop run forever!
+    if (v > 500) {
+        break;
+    }
+}
+// 1 9 33 105 321 969
+```
+
+但别跳过`for (var v of something()) ..`！我们并没有像以前一样简单地引用`something`作为值，而是调用`*something()`生成器来获得*迭代器*供`for..of`循环使用。
+
+如果你密切关注的话，关于生成器和循环的这种交互，可能有两个问题：
+
++ 为什么我们不能用`for (var v of something) ..`？因为`something`是个生成器，并不是个*iterable*。我们必须调用`something()`来构建一个发生器供`for..of`迭代。
++ `something()`调用生成一个*迭代器*，但是`for..of`循环需要一个`iterable`，不是吗？是的。生成器的*迭代器*也有一个内建的`Symbol.iterator`函数，基本上作`return this`，就像早先定义的`something`*iterable*。换句话说，生成器的*迭代器*也是一个`iterable`！
+
+#### 停止生成器（Stopping the Generator）
+
+在前一个例子中，似乎在循环中的`break`调用之后，`*something()`生成器基本上永远处于挂起状态。
+
+但有个隐藏行为需要你注意。`for..of`“的非正常完成”（即“过早终止”）--通常由`break`，`return` ，或者未捕获的异常引发--会向生成器的*迭代器*发送终止信号。
+
+**注意：** 从技术上讲，在循环正常完成时，`for..of`循环也会向*迭代器*发送这个信号。对生成器而言，本质上是个无意义的操作。因为生成器的*迭代器*必须首先完成，然后`for..of`循环才完成。然而，自定义的*迭代器*可能希望接收到来自`for..of`循环处理过程的附加信号。
+
+尽管`for..of`循环会自动发送该信号，但是你可能希望手动向*迭代器*发送信号，可以通过调用`return(..)`实现。
+
+如果在生成器内部指定`try..finally`，则即使生成器是在外部完成，`try..finally`也总是会运行。如果想清理一下资源（数据连接等等），这很有用：
+
+```javascript
+function *something() {
+    try {
+        var nextVal;
+
+        while (true) {
+            if (nextVal === undefined) {
+                nextVal = 1;
+            }
+            else {
+                nextVal = (3 * nextVal) + 6;
+            }
+
+            yield nextVal;
+        }
+    }
+    // cleanup clause
+    finally {
+        console.log( "cleaning up!" );
+    }
+}
+```
+
+早先例子`for..of`循环中的`break`会触发`finally`子句。但你可以通过外部`return(..)`手动终止生成器的*迭代器*实例：
+
+```javascript
+var it = something();
+for (var v of it) {
+    console.log( v );
+
+    // don't let the loop run forever!
+    if (v > 500) {
+        console.log(
+            // complete the generator's iterator
+            it.return( "Hello World" ).value
+        );
+        // no `break` needed here
+    }
+}
+// 1 9 33 105 321 969
+// cleaning up!
+// Hello World
+```
+
+当我们调用`it.return(..)`时，它会立马终止生成器，当然会运行`finally`子句。同样的，它也可以向`return(..)`中传入参数来设置返回`value`，那就是`"Hello World"`立即返回的方式。现在我们不需要包含`break`了，因为生成器的*迭代器*被设为`done:true`了，因此`for..of`循环会在下一次迭代时终止。
+
+之所以叫生成器，很大原因要归于处理生成值的用法。但这只是生成器的其中一个用法，坦白来说，甚至不是本书关注的重点。
+
+但既然我们对其工作机制有了更全面的理解，下一步，我们就该把目光转向生成器是如何运用于异步并发的。
+
+## 异步迭代生成器（Iterating Generators Asynchronously）
+
+生成器和异步编程模式有什么关系，修复回调问题之类的？让我们来回到这个重要的问题。
+
+我们重新回顾一下第三章的一个场景。回想一下回调方法：
+
+```javascript
+function foo(x,y,cb) {
+    ajax(
+        "http://some.url.1/?x=" + x + "&y=" + y,
+        cb
+    );
+}
+
+foo( 11, 31, function(err,text) {
+    if (err) {
+        console.error( err );
+    }
+    else {
+        console.log( text );
+    }
+} );
+```
+
+如果想用生成器表示同样的异步流，可以这样：
+
+```javascript
+function foo(x,y) {
+    ajax(
+        "http://some.url.1/?x=" + x + "&y=" + y,
+        function(err,data){
+            if (err) {
+                // throw an error into `*main()`
+                it.throw( err );
+            }
+            else {
+                // resume `*main()` with received `data`
+                it.next( data );
+            }
+        }
+    );
+}
+
+function *main() {
+    try {
+        var text = yield foo( 11, 31 );
+        console.log( text );
+    }
+    catch (err) {
+        console.error( err );
+    }
+}
+
+var it = main();
+
+// start it all up!
+it.next();
+```
+
+第一眼看上去，代码有点长，或许比之前的回调更复杂点。但别因第一印象而偏离轨道。生成器版代码实际上更好！但有些东西需要解释一下。
+
+首先看一下这部分代码，是最重要的：
+
+```javascript
+var text = yield foo( 11, 31 );
+console.log( text );
+```
+
+想想这段代码是怎么运行的。我们调用了一个普通的函数`foo(..)`，很明显，我们能够取得Ajax调用返回的`text`，即使它是异步的。
+
+怎么可能？如果你回想下第一章开始的部分，我们有几乎一样的代码：
+
+```javascript
+var data = ajax( "..url 1.." );
+console.log( data );
+```
+那段代码（译者注：指第一章开始部分的那段代码）并没有起作用！你注意到不同了吗？生成器中使用了一个`yield`。
+
+那就是神奇所在！那才是允许我们实现看起来是阻塞的、同步的代码，但实际上并不是阻塞整个程序效果的东西；它只是暂停/阻塞了生成器内部的代码。
+
+在`yield foo(11,31)`中，首先`foo(11,31)`被调用，什么都不返回（即`undefined`），因此我们发了个请求来获取数据，但实际上并没有做`yield undefined`。没关系，因为当前代码并没有依赖`yield`的值来做任何有趣的事。我们会在本章后面再讨论这个问题。
+
+此处，我们没有用`yield`来传递信息，只是一种暂停/阻塞的流控制。事实上，在生成器恢复之后，会有信息传递的，但只是单方向的。
+
+那么，生成器在`yield`处暂停，本质上是问个问题，“我应该返回什么值来赋给变量`text`?”谁来回答这个问题呢？
+
+看一下`foo(..)`。如果Ajax请求成功，我们调用：
+
+```javascript
+it.next( data );
+```
+
+这是以响应的数据恢复生成器，意味着暂停的`yield`表达式直接接收那个值，之后重启生成器代码，之后值赋给局部变量`text`。
+
+相当酷，不是吗？
+
+退一步考虑一下其含义。在生成器内部，我们已经有了看起来是同步的代码（除了`yield`关键词本身），但隐藏在幕后的，`foo(..)`内部，操作可以异步完成。
+
+**意义相当重大！** 回调函数无法以序列化的、我们大脑能关联上的同步方式表达异步，那是针对这一问题的几乎完美的解决方法。
+
+本质而言，我们将异步的实现细节抽象了出来，因此我们可以以同步/序列化的方式解释异步流：“发Ajax请求，当请求完成时，打印出响应”。当然，我们在异步流控制中只表示了两步。但同样的能力可以无界限地扩展，使得我们能够按需表示任意多步。
+
+**提示：** 这是个重要的实现，赶快回去再读读后三段，让它沉入心里。
+
+### 同步错误处理（Synchronous Error Handling）
+
+但是对我们而言，前面的生成器代码有更多的好处。让我们把注意力转向生成器内部的`try..catch`：
+
+```javascript
+try {
+    var text = yield foo( 11, 31 );
+    console.log( text );
+}
+catch (err) {
+    console.error( err );
+}
+```
+
+这怎么运行的呢？`foo(..)`调用是异步完成的，`try..catch`不是无法捕获异步错误吗，正如第三章中看到的一样？
+
+我们已经看到`yield`是如何让赋值语句暂停来等待`foo(..)`完成的，以至于完成的响应可以赋给`text`。最精彩的部分在于`yield`暂停也允许生成器`catch`错误。我们向生成器中抛入那个错误，如早先代码中的那样：
+
+```javascript
+if (err) {
+    // throw an error into `*main()`
+    it.throw( err );
+}
+```
+
+生成器的`yield`暂停特性意味着，我们不仅可以从异步函数调用中获取看起来是同步的`return`值，而且也可以从那些异步函数调用中同步地`catch`错误！
+
+既然我们已经看过了如何向生成器中抛出错误，但要是在生成器外也抛出错误呢？正如你所想：
+
+```javascript
+function *main() {
+    var x = yield "Hello World";
+
+    yield x.toLowerCase();  // cause an exception!
+}
+
+var it = main();
+
+it.next().value;            // Hello World
+
+try {
+    it.next( 42 );
+}
+catch (err) {
+    console.error( err );   // TypeError
+}
+```
+
+当然，我们可以通过`throw..`手动抛出错误，而不是引发一个异常。
+
+我们甚至可以捕获像`throw(..)`进生成器一样的错误，本质上是给生成器一个机会来处理它，但如果不处理，*迭代器*代码必须处理：
+
+```javascript
+function *main() {
+    var x = yield "Hello World";
+
+    // never gets here
+    console.log( x );
+}
+
+var it = main();
+
+it.next();
+
+try {
+    // will `*main()` handle this error? we'll see!
+    it.throw( "Oops" );
+}
+catch (err) {
+    // nope, didn't handle it!
+    console.error( err );           // Oops
+}
+```
+
+就可读性和可推理性而言，看起来同步的错误处理（通过`try..catch`）实现异步错误处理是个巨大的胜利。
+
+## 生成器 + Promise（Generators + Promises）
+
+在之前的讨论中，我们展示了如何异步迭代生成器，相对于意大利面条式的回调混乱，序列化的可推理性是个巨大的进步。但是我们丢了一些非常重要的东西：Promise的可信任和可组合性（见第三章）！
+
+别担心--我们会找回来的。ES6中最棒的部分是组合Promise和生成器（看起来同步的异步代码）。
+
+但怎么做呢？
+
+回想下第三章中基于Promise的Ajax例子：
+
+```javascript
+function foo(x,y) {
+    return request(
+        "http://some.url.1/?x=" + x + "&y=" + y
+    );
+}
+
+foo( 11, 31 )
+.then(
+    function(text){
+        console.log( text );
+    },
+    function(err){
+        console.error( err );
+    }
+);
+```
+
+早先的Ajax生成器代码中，`foo(..)`什么都不返回（`undefined`），*迭代器*控制代码不关心`yield`的值。
+
+但Promise式的`foo(..)`在Ajax调用后返回了一个promise。表明我们可以用`foo(..)`构建一个promise，之后从生成器中`yield`出来。
+
+但*迭代器*如何处理promise呢？
+
+它应该监听promise解析（fulfillment或者rejection），之后既可用fulfillment信息恢复生成器，又可用错误原因向生成器中抛出错误。
+
+让我重复一遍，因为很重要！获取Promise和生成器精华最自然的方式是`yield`**出一个Promise**，连接那个Promise来控制生成器的*迭代器*。
+
+我们来试一下！首先，我们将生成器`*main()`和Promise式的`foo(..)`放在一起：
+
+```javascript
+function foo(x,y) {
+    return request(
+        "http://some.url.1/?x=" + x + "&y=" + y
+    );
+}
+
+function *main() {
+    try {
+        var text = yield foo( 11, 31 );
+        console.log( text );
+    }
+    catch (err) {
+        console.error( err );
+    }
+}
+```
+
+这个重构最强大的启示是`*main()`中的代码**一点也不需要变！**在生成器内部，`yield`出什么值是不透明的实现细节，因此我们甚至没有意识到它的发生，也不需要去担心了。
+
+但现在，我们该如何运行`*main()`？仍然有一些实现探究工作要做，接收和连接`yield`出的promise，以便一旦解析，就恢复生成器。我们手动试下：
+
+```javascript
+var it = main();
+
+var p = it.next().value;
+
+// wait for the `p` promise to resolve
+p.then(
+    function(text){
+        it.next( text );
+    },
+    function(err){
+        it.throw( err );
+    }
+);
+```
+
+事实上，一点也不痛苦，不是吗？
+
+这段代码很像我们早先做的，即手动连接的由错误优先回调控制的生成器。promise已经为我们分成fulfillmeng（成功）和rejection（失败），而不是`if (err) { it.throw..`，但除此之外，*迭代器*控制是一样的。
+
+现在，我们已经掩盖了一些重要的细节。
+
+最重要的是，我们利用这一事实，即我们知道`*main()`内部只有一个Promise式的步骤。要是我们想用Promise驱动生成器，不管它有几步呢？我们当然不想为每个生成器手动写不同的Promise链！如果有一种方法重复（即“循环”）迭代控制，每次返回一个Promise，在继续之前等待其解析结果就好了。
+
+另外，要是在`it.next(..)`调用过程中，生成器抛出一个错误（有意的或者无意的）呢？我们是该停止，还是`catch`它并把它发送回去？同样的，要是我们`it.throw(..)`一个Promise rejection到生成器中，但没有被处理，又被抛出来了呢？
+
+### Promise式的生成器赛跑者（Promise-Aware Generator Runner）
+
+
+
+
+
+
 
 
 
