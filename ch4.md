@@ -567,7 +567,7 @@ function *something() {
 }
 ``` 
 
-**注意：** 正常来说，`while..true`循环包含在JS程序中是一件很糟糕的事，至少在没有`break`或`return`时，因为会永远同步运行，阻塞/锁死浏览器UI。然而，在生成器中，如果有`yield`则完全没关系，因为生成器会在每次迭代时暂停，`yield`回主程序或者事件轮询队列。简单点，“生成器把`while..true`带回了JS编程！”
+**注意：** 正常来说，`while..true`循环包含在JS程序中是一件很糟糕的事，至少在没有`break`或`return`时是如此，因为会永远同步运行，阻塞/锁死浏览器UI。然而，在生成器中，如果有`yield`则完全没关系，因为生成器会在每次迭代时暂停，`yield`回主程序或者事件轮询队列。简单点，“生成器把`while..true`带回了JS编程！”
 
 是不是更简单明了了？因为生成器在每个`yield`处暂停，函数`*something()`状态（域）被保持，意味着整个调用过程中都不需要闭包样版来保存变量状态。
 
@@ -924,7 +924,61 @@ p.then(
 
 另外，要是在`it.next(..)`调用过程中，生成器抛出一个错误（有意的或者无意的）呢？我们是该停止，还是`catch`它并把它发送回去？同样的，要是我们`it.throw(..)`一个Promise rejection到生成器中，但没有被处理，又被抛出来了呢？
 
-### Promise式的生成器赛跑者（Promise-Aware Generator Runner）
+### Promise-Aware Generator Runner
+
+沿着这条道路探索越多，你就越会意识到，“哇哦，如果有utility给我用就太棒了。”你问对了。这是一种很重要的模式，你不想把它弄错（或者耗尽精力地一遍一遍重复），因此你最好的赌注是使用一个utility，专门用来运行Promise-以我们所举的方式`yield`出生成器。
+
+有几个Promise抽象库提供了这样的utility，包括我的*异步序列*库和它的`runner(..)`，会在本书的附录A中讨论。
+
+但为了学习和说明，让我们简单定义下单独的utility，叫做`run(..)`：
+
+```javascript
+// thanks to Benjamin Gruenbaum (@benjamingr on GitHub) for
+// big improvements here!
+function run(gen) {
+    var args = [].slice.call( arguments, 1), it;
+
+    // initialize the generator in the current context
+    it = gen.apply( this, args );
+
+    // return a promise for the generator completing
+    return Promise.resolve()
+        .then( function handleNext(value){
+            // run to the next yielded value
+            var next = it.next( value );
+
+            return (function handleResult(next){
+                // generator has completed running?
+                if (next.done) {
+                    return next.value;
+                }
+                // otherwise keep going
+                else {
+                    return Promise.resolve( next.value )
+                        .then(
+                            // resume the async loop on
+                            // success, sending the resolved
+                            // value back into the generator
+                            handleNext,
+
+                            // if `value` is a rejected
+                            // promise, propagate error back
+                            // into the generator for its own
+                            // error handling
+                            function handleErr(err) {
+                                return Promise.resolve(
+                                    it.throw( err )
+                                )
+                                .then( handleResult );
+                            }
+                        );
+                }
+            })(next);
+        } );
+}
+```
+
+如你所见，
 
 
 

@@ -437,7 +437,7 @@ var v2 = [ "Hello", "World" ];
 
 尽管我们已经在代码中很清楚地展开探究了*未来值*和*完成事件*，我们还不是很清楚Promise是如何设计的，能够解决我们在第二章“信任问题”一节中提出的所有*控制权反转*信任问题。只要稍加深究，我们就能在异步编程时重拾第二章中失去的信心！
 
-让我们回顾一下只采用回调编程的信任问题。当传递一个回调给实用函数（utility）`foo(..)`，可能：
+让我们回顾一下只采用回调编程的信任问题。当传递一个回调给utility`foo(..)`，可能：
 
 + 太早调用回调
 + 太晚调用回调（或者从不调用）
@@ -726,7 +726,7 @@ Promise.resolve( p )
 
 `Promise.resolve(..)`会接收任何thenable，然后将其拆析（unwrap）直至获得一个非thenable值。但是从`Promise.resolve(..)`，你会得到一个真正的promise，**一个你可以信赖的promise**。如果你传入的已经是个真正的promise，只会原样返回，因此，通过`Promise.resolve(..)`过滤来获取信任一点坏处也没有。
 
-因此，假设我们正在调用`foo(..)`实用函数（utility），我们不确定它的返回值是否是正常的Promise，但我们知道它至少是个thenable。`Promise.resolve(..)`会给我们一个值得信赖的Promise包装用作链式调用：
+因此，假设我们正在调用`foo(..)`utility，我们不确定它的返回值是否是正常的Promise，但我们知道它至少是个thenable。`Promise.resolve(..)`会给我们一个值得信赖的Promise包装用作链式调用：
 
 ```javascript
 // don't just do this:
@@ -855,7 +855,7 @@ p.then( function(v){
 
 当然，这些例子中步骤之间传递的值是可选的。如果你不返回一个显式的值，则会假定有个隐式的`undefined`，并且promise还是以同样的方式串起来。每个Promise的解析项只是进行到下一步的信号。
 
-为了更进一步说明链式，让我们创建一个通用实用函数（utility），用来生成延时Promise，使之能够多步复用：
+为了更进一步说明链式，让我们创建一个通用utility，用来生成延时Promise，使之能够多步复用：
 
 ```javascript
 function delay(time) {
@@ -903,7 +903,7 @@ function request(url) {
 }
 ```
 
-我们首先定义了一个`request(..)`实用函数（utility），用来构建一个promise代表`ajax(..)`调用的完成：
+我们首先定义了一个`request(..)`utility，用来构建一个promise代表`ajax(..)`调用的完成：
 
 ```javascript
 request( "http://some.url.1/" )
@@ -915,7 +915,7 @@ request( "http://some.url.1/" )
 } );
 ```
 
-**注意：** 开发者常遇到的一种情形是，他们想采用一些本身不支持Promise（Promise-enabled）的第三方实用函数（utility）（比如此处的`ajax(..)`，它需要一个回调函数）来实现类Promise（Promise-aware）的异步流控制。尽管原生的ES6 `Promise`机制无法自动为我们提供这种模式，但是所有的Promise库会提供。通常称这个过程为“提升（lifting）”或者“promise化（promisifying）” 或者其它变体。我们之后会讨论这一技术。
+**注意：** 开发者常遇到的一种情形是，他们想采用一些本身不支持Promise（Promise-enabled）的第三方utility（比如此处的`ajax(..)`，它需要一个回调函数）来实现类Promise（Promise-aware）的异步流控制。尽管原生的ES6 `Promise`机制无法自动为我们提供这种模式，但是所有的Promise库会提供。通常称这个过程为“提升（lifting）”或者“promise化（promisifying）” 或者其它变体。我们之后会讨论这一技术。
 
 我们通过第一个URL调用`request(..)`（能返回Promise（Promise-returning））来隐式创建链的第一步，然后用第一个`then(..)`链接到返回的promise上。
 
@@ -1523,9 +1523,9 @@ if (!Promise.first) {
 
 有时，你想遍历一列Promise，并针对所有这些Promise执行某些任务，就像对同步的`array`一样（比如，`forEach(..)`，`map(..)`，`some(..)`和`every(..)`）。如果对每个promise执行的任务是严格同步的，这几个方法就可以了，正如我们之前代码中用到的`forEach(..)`一样。
 
-但如果任务是异步的，或者应该并发执行，那么你可以使用库提供的这些实用函数（utility）的异步版本。
+但如果任务是异步的，或者应该并发执行，那么你可以使用库提供的这些utility的异步版本。
 
-例如，考虑一个异步的`map(..)`实用函数（utility），它接受一个`array`值（可能是Promise，也可能是其它）和一个针对每个值的执行函数（任务）。`map(..)`函数本身返回一个promise，它的fulfillment值是一个`array`，保存着（以同样的映射顺序）每个任务返回的fulfillment值：
+例如，考虑一个异步的`map(..)`utility，它接受一个`array`值（可能是Promise，也可能是其它）和一个针对每个值的执行函数（任务）。`map(..)`函数本身返回一个promise，它的fulfillment值是一个`array`，保存着（以同样的映射顺序）每个任务返回的fulfillment值：
 
 ```javascript
 if (!Promise.map) {
@@ -1730,7 +1730,7 @@ p.catch( handleErrors );
 
 有时你可以把这当做一个信号，即应该将问题分解为多个Promise。
 
-假设有一个实用函数（utility）`foo(..)`，它异步生成两个值（`x`和`y`）。
+假设有一个utility`foo(..)`，它异步生成两个值（`x`和`y`）。
 
 ```javascript
 function getY(x) {
@@ -1929,7 +1929,7 @@ foo( 11, 31, function(err,text) {
 
 是否立刻就能看出第一步应该干什么，即如何将这个基于回调的代码转为基于Promise的代码？取决于你的经验。你使用Promise的实践越多，就会越觉得自然。Promise并没有宣称具体该怎么做--没有放之四海皆准的答案--因此责任在你。
 
-正如我们之前讨论过的一样，我们确实需要一个基于Promise，而不是回调的Ajax实用函数，我们可以称之为`request(..)`。你可以像我们一样实现自己的方法。但是为每个基于回调的实用函数手动定义Promise式的包装器开销很大，你就更不会选择基于Promise的重构了。
+正如我们之前讨论过的一样，我们确实需要一个基于Promise，而不是回调的Ajax utility，我们可以称之为`request(..)`。你可以像我们一样实现自己的方法。但是为每个基于回调的utility手动定义Promise式的包装器开销很大，你就更不会选择基于Promise的重构了。
 
 对于这一不足，Promise没有直接的答案。然而，绝大多数Promise库确实提供这样的一个辅助函数。但就算没有这样的库，辅助函数也可能像这样：
 
