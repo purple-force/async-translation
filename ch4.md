@@ -316,7 +316,7 @@ function step(gen) {
     };
 }
 ```
-`step(..)`初始化生成器，生成自己的`it`*迭代器*，之后返回了一个函数，该函数单步推进`迭代器`。另外，之前`yield`出的值被传回*下一步*中。因此，`yield 8`只会变成`8`，`yield b`只会变成`b`（`yield`的是什么就是什么）。
+`step(..)`初始化生成器，生成自己的`it`*迭代器*，之后返回了一个函数，该函数单步推进（advance）`迭代器`的执行。另外，之前`yield`出的值被传回*下一步*中。因此，`yield 8`只会变成`8`，`yield b`只会变成`b`（`yield`的是什么就是什么）。
 
 现在，只是为了好玩，让我们做个试验，来看看交叉`*foo()`和`*bar()`的不同代码块会有什么效果。我们先以基本的用例开始，确保在`*bar()`之前，`*foo()`已经完全运行完了（就像我们在第一章做的那样）：
 
@@ -978,7 +978,53 @@ function run(gen) {
 }
 ```
 
-如你所见，
+如你所见，如果想自己实现，可能更复杂，尤其是对每个使用的生成器，你肯定不想一遍一遍地重复这段代码。因此，一个utility/library辅助函数是必须的。然而，我鼓励你花几分钟研究一下这段代码，以便更好地理解如何管理生成器+Promise的协调。
+
+在Ajax例子中，对`*main()`，如何使用'run(..)'呢？
+
+```javascript
+function *main() {
+    // ..
+}
+
+run( main );
+```
+
+就是这样！`run(..)`会自动异步推进（advance）传入生成器的执行，直至结束。
+
+**注意：** 我们定义的`run(..)`返回一个promise，一旦生成器结束，该promise就得到解析，或者，如果生成器没有处理，该promise就会接收未捕获的异常。此处，我们不展示这一功能，会在本章后面提及。
+
+#### ES7: `async`和`await`?
+
+之前的模式--生成器生成Promise，之后Promise控制生成器的*迭代器*来推进（advance）生成器的执行直至结束--是个强大和有用的方法，如果没有乱糟糟的库或者utility辅助函数（即`run(..)`）也能实现就好了。
+
+关于这方面，可能有好消息。在写这本书时，很早就有人提议在后ES6、ES7中添加更多关于这一领域的语法项。很明显，现在确认细节还为时尚早，但很可能与下面的类似：
+
+```javascript
+function foo(x,y) {
+    return request(
+        "http://some.url.1/?x=" + x + "&y=" + y
+    );
+}
+
+async function main() {
+    try {
+        var text = await foo( 11, 31 );
+        console.log( text );
+    }
+    catch (err) {
+        console.error( err );
+    }
+}
+
+main();
+```
+
+如你所见，没有`run(..)`调用（意味着不需要库或者utility!）来激活和驱动`main()`--仅仅如普通函数调用一般。另外，`main()`再也不用声明成生成器函数了；它是一种新的函数：`async function`。最后，我们`await` promise解析，而不是`yield`它。
+
+如果你`await` 一个Promise，`async function`自动知晓该怎么做--它会暂停函数（就和生成器一样）直至Promise解析完。这段代码中我们没有对此作说明，但是调用像`main()`的`async function`结束之后会自动返回一个解析后的promise。
+
+**提示：** `async`/`await`语法对有C#经验的读者而言很熟悉，因为基本上一致。
 
 
 
