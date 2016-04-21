@@ -59,7 +59,7 @@ function bar() {
 }
 ```
 
-**注意：**你可能看到绝大多数其它JS文档/代码会以`function* foo() { .. }`的形式声明一个生成器，而不是我此处使用的`function *foo() { .. }`--唯一的不同是`*`的文体位置。这两种格式从功能/语法上来说是一致的，和第三种形式，`function*foo() { .. }`（没有空格）也是一样的。这两种形式都有争议，但是我偏向于`function *foo..`，因为这与我以`*foo()`形式引用生成器的方式相吻合。如果我只说`foo()`，你不知道我是在说生成器还是一个普通的函数。完全是文体形式上的偏爱而已。
+**注意：**你可能看到绝大多数其它JS文档/代码会以`function* foo() { .. }`的形式声明一个生成器，而不是我此处使用的`function *foo() { .. }`--唯一的不同是`*`的位置。这两种格式从功能/语法上来说是一致的，和第三种形式，`function*foo() { .. }`（没有空格）也是一样的。这两种形式都有争议，但是我偏向于`function *foo..`，因为这与我以`*foo()`形式引用生成器的方式相吻合。如果我只说`foo()`，你不知道我是在说生成器还是一个普通的函数。完全是风格上的偏爱而已。
 
 现在，我们该如何运行前面的代码，使得`bar()`运行到`*foo()`中的`yield`点？
 
@@ -1025,6 +1025,218 @@ main();
 如果你`await` 一个Promise，`async function`自动知晓该怎么做--它会暂停函数（就和生成器一样）直至Promise解析完。这段代码中我们没有对此作说明，但是调用像`main()`的`async function`结束之后会自动返回一个解析后的promise。
 
 **提示：** `async`/`await`语法对有C#经验的读者而言很熟悉，因为基本上一致。
+
+提案建议支持这种模式，使之成为一种语法机制：将Promise组合成看起来同步的流控制代码。那是两者最好的组合，能够有效处理我们列出的关于回调的所有主要问题。
+
+起码的事实是，这样的ES7式提案已经存在了，并且得到了早期的支持，热情（译者注：指业界对这种模式很青睐）给予将来这种重要的异步模式极大信心。
+
+### 生成器中的Promise并发（Promise Concurrency in Generators）
+
+目前为止，我们说明的只是用Promise+generators实现的单步异步流。但实际中的代码通常需要多个异步步骤。
+
+如果不注意，同步风格的生成器会麻痹你，让你满足于构建异步并发的方式，从而导致性能次优。因此，我们需要花些时间来探索一下这方面。
+
+假设有个场景，你需要从两个不同的源获取数据，之后将两个响应合并，作第三个请求，最终打印出最后的响应。在第三章中，我们探索过类似的场景，现在在生成器背景下重新考虑。
+
+你的第一反应可能像这样：
+
+```javascript
+function *foo() {
+    var r1 = yield request( "http://some.url.1" );
+    var r2 = yield request( "http://some.url.2" );
+
+    var r3 = yield request(
+        "http://some.url.3/?v=" + r1 + "," + r2
+    );
+
+    console.log( r3 );
+}
+
+// use previously defined `run(..)` utility
+run( foo );
+```
+
+这段代码有效，但在我们的特定场景中，这不是最优的。你能指出原因吗？
+
+因为`r1`和`r2`请求能够--并且，从性能考虑，应该--并发运行，但这段代码中，它们是序列运行的；直到`"http://some.url.1"`请求完成后`"http://some.url.2"`才开始进行Ajax数据获取。这两个请求是独立的，因此，性能更好的方式是让这两个请求同时运行。
+
+但用生成器和`yield`如何做呢？我们知道`yield`只是代码中的单个暂停点，因此无法同时作两次暂停。
+
+最自然和有效的答案是基于Promise的异步流，尤其是它以与时间无关的方式管理状态的功能（见第三章的`Future Value`）。
+
+最简单的方法：
+
+```javascript
+function *foo() {
+    // make both requests "in parallel"
+    var p1 = request( "http://some.url.1" );
+    var p2 = request( "http://some.url.2" );
+
+    // wait until both promises resolve
+    var r1 = yield p1;
+    var r2 = yield p2;
+
+    var r3 = yield request(
+        "http://some.url.3/?v=" + r1 + "," + r2
+    );
+
+    console.log( r3 );
+}
+
+// use previously defined `run(..)` utility
+run( foo );
+```
+
+为什么这个不同于前一段代码呢？看下`yield`的位置，`p1`和`p2`是并发（即并行）执行Ajax请求的promise。谁先完成并不重要，因为promise会保存着解析后的状态。
+
+之后我们使用两个连续的`yield`表达式来从promise（`p1`和`p2`）中等待并获取解析结果。如果`p1`先解析完，`yield p1`会首先恢复，之后等待`yield p2`恢复。如果`p2`首先解析，只是会耐心地保持解析值直至被访问，但是`yield p1`会首先挂起，直至`p1`解析。
+
+无论哪一种情况，`p1`和`p2`都会并发运行，在`r3 = yield request..`Ajax请求之前，无论什么顺序，`p1`和`p2`都得完成。
+
+如果那种流控制处理模型听起来很熟悉，它基本上和第三章中的`gate`模式一样，由`Promise.all([ .. ])` utility提供。因此，我们也可以这样表示：
+
+```javascript
+function *foo() {
+    // make both requests "in parallel," and
+    // wait until both promises resolve
+    var results = yield Promise.all( [
+        request( "http://some.url.1" ),
+        request( "http://some.url.2" )
+    ] );
+
+    var r1 = results[0];
+    var r2 = results[1];
+
+    var r3 = yield request(
+        "http://some.url.3/?v=" + r1 + "," + r2
+    );
+
+    console.log( r3 );
+}
+
+// use previously defined `run(..)` utility
+run( foo );
+```
+
+**注意：** 如在第三章讨论的一样，我们甚至可以使用ES6的解构赋值来简化`var r1 = .. var r2 = ..`，即`var [r1,r2] = results`。
+
+换句话说，Promise的所有并发功能都可以用在generator+Promise中。因此，在任何需要不止一个this-then-that的异步流控制步骤的地方，Promise是你最好的选择。
+
+#### Promise,隐藏（Promises, Hidden）
+
+代码风格上需要当心的一点是，注意**生成器内**包含多少Promise逻辑。我们在异步中使用生成器只是为了创建简单、序列化、同步风格的代码，所以尽可能从代码层面隐藏异步细节。
+
+例如，这种方式可能更清晰：
+
+```javascript
+// note: normal function, not generator
+function bar(url1,url2) {
+    return Promise.all( [
+        request( url1 ),
+        request( url2 )
+    ] );
+}
+
+function *foo() {
+    // hide the Promise-based concurrency details
+    // inside `bar(..)`
+    var results = yield bar(
+        "http://some.url.1",
+        "http://some.url.2"
+    );
+
+    var r1 = results[0];
+    var r2 = results[1];
+
+    var r3 = yield request(
+        "http://some.url.3/?v=" + r1 + "," + r2
+    );
+
+    console.log( r3 );
+}
+
+// use previously defined `run(..)` utility
+run( foo );
+```
+
+在`*foo()`内部，我们所做的只是请求`bar(..)`获取一些`results`，之后`yield`--等待它的发生，很清晰明了。我们不需要关心在其下面的，即采用`Promise.all([ .. ])` Promise组合让其发生。
+
+**我们将异步，尤其是Promise，视作实现细节。**
+
+在函数中隐藏Promise逻辑，只从生成器中调用该函数，这种方式特别有用，尤其是在做一些特别复杂的序列化流控制时。例如：
+
+```javascript
+function bar() {
+    Promise.all( [
+        baz( .. )
+        .then( .. ),
+        Promise.race( [ .. ] )
+    ] )
+    .then( .. )
+}
+```
+
+这种逻辑有时是需要的，如果把它直接丢到生成器内，你首先想到是为什么要这样使用生成器。我们应该从生成器中抽离出这些细节，防止这些细节弄乱更高级别任务的表达。
+
+编写代码时除了要保证功能和性能，也要保证代码尽可能的合理和易于维护。
+
+**注意：** 对编程而言，抽象也不见得总是好的--很多时候，为了简洁而增加了代码的复杂度。但在这个例子中，我认为generator+Promise异步代码比其它方案更好。总之一句话，关注特定的情形，为你和你的团队做出合理的决定。
+
+## 生成器代理（Generator Delegation）
+
+在前一节中，我们展示了从生成器内部调用普通函数，以及为什么抽离实现细节是个有用的技术（像异步Promise流）。但采用普通函数的主要缺点是必须遵循不同函数规则，这意味着无法像生成器一样使用`yield`来暂停函数自身。
+
+你突然想到，通过辅助函数`run(..)`，可以试着从另一个生成器中调用生成器，形如：
+
+```javascript
+function *foo() {
+    var r2 = yield request( "http://some.url.2" );
+    var r3 = yield request( "http://some.url.3/?v=" + r2 );
+
+    return r3;
+}
+
+function *bar() {
+    var r1 = yield request( "http://some.url.1" );
+
+    // "delegating" to `*foo()` via `run(..)`
+    var r3 = yield run( foo );
+
+    console.log( r3 );
+}
+
+run( bar );
+```
+
+通过使用`run(..)` utility，我们在`*bar()`内部运行`*foo()`。此处，我们利用了这一事实，即早先定义的`run(..)`返回一个promise，当该生成器运行直至结束（或者发生错误）时，该promise得到解析。因此，如果我们`yield`出另一个`run(..)`调用生成的promise给`run(..)`实例，它会自动暂停`*bar()`直至`*foo()`完成。
+
+但是有个更好的方法来整合`*bar()`内的`*foo()`调用，称为`yield`代理。`yield`代理的特殊语法是：`yield * _`（注意多出的`*`）。在我们看它如何在之前例子中工作之前，先看一个简单点的场景：
+
+```javascript
+function *foo() {
+    console.log( "`*foo()` starting" );
+    yield 3;
+    yield 4;
+    console.log( "`*foo()` finished" );
+}
+
+function *bar() {
+    yield 1;
+    yield 2;
+    yield *foo();   // `yield`-delegation!
+    yield 5;
+}
+
+var it = bar();
+
+it.next().value;    // 1
+it.next().value;    // 2
+it.next().value;    // `*foo()` starting
+                    // 3
+it.next().value;    // 4
+it.next().value;    // `*foo()` finished
+                    // 5
+```
 
 
 
