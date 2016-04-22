@@ -1238,6 +1238,44 @@ it.next().value;    // `*foo()` finished
                     // 5
 ```
 
+**注意：** 类似于本章早些时候的注意事项，即为什么我偏爱`function *foo() ..`而不是`function* foo() ..`，同样，我也偏爱--不同于其它大多数相关文档--用`yield *foo()`，而不是`yield* foo()`。`*`的位置纯粹是风格上的喜好，由你自己决定。但我觉得风格一致比较有吸引力。
+
+`yield *foo()`代理是如何工作的呢？
+
+首先，`foo()`调用创建了一个*迭代器*。之后，`yield *`代理/转移*迭代器*实例的控制权（当前`*bar()`生成器的）给另一个`*foo()`*迭代器*。
+
+因此，前两个`it.next()`调用控制`*bar()`，但是当进行第三个`it.next()`调用时，`*foo()`启动了，现在我们控制`foo()`而不是`*bar()`了。这就是称为代理的原因--`*bar()`将自己迭代的控制权代理给`*foo()`。
+
+一旦`it`*迭代器*控制迭代完整个`*foo()`*迭代器*，就会自动返回到`*bar()`控制之中。
+
+现在回到之前的三个序列化Ajax请求的例子：
+
+```javascript
+function *foo() {
+    var r2 = yield request( "http://some.url.2" );
+    var r3 = yield request( "http://some.url.3/?v=" + r2 );
+
+    return r3;
+}
+
+function *bar() {
+    var r1 = yield request( "http://some.url.1" );
+
+    // "delegating" to `*foo()` via `yield*`
+    var r3 = yield *foo();
+
+    console.log( r3 );
+}
+
+run( bar );
+```
+
+和早先版本唯一的不同是采用了`yield *foo()`，而不是之前的`yield run(foo)`
+
+**注意：** `yield *` yield出迭代控制权，而不是生成器的控制权；当你激活`*foo()`生成器时，`yield`代理到它的*迭代器*。但实际上也可以`yield`代理任何`iterable`，`yield *[1,2,3]`会处理`[1,2,3]`的默认*迭代器*。
+
+
+
 
 
 
