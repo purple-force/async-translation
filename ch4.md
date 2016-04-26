@@ -1274,7 +1274,69 @@ run( bar );
 
 **注意：** `yield *` yield出迭代控制权，而不是生成器的控制权；当你激活`*foo()`生成器时，`yield`代理到它的*迭代器*。但实际上也可以`yield`代理任何`iterable`，`yield *[1,2,3]`会处理`[1,2,3]`的默认*迭代器*。
 
+### 为什么代理？（Why Delegation?）
 
+`yield`代理的主要目的是组织代码，那样的话就和普通的函数调用没什么区别了。
+
+假设两个模块分别提供了`foo()`和`bar()`方法，`bar()`调用`foo()`。
+分开的原因通常是为合理的代码组织考虑，即可能在不同的函数中调用它们。比如，可能有些时候，`foo()`是单独调用的，有时是`bar()`调用`foo()`。
+
+几乎基于同样的原因，即保持生成器分离有助于提高程序的可读性、可维护性和可调试性。从那个角度讲，当在`*bar()`内部时，`yield *`是手动迭代`*foo()`步骤的简写形式。
+
+如果`*foo()`的步骤是异步的，手动方法可能特别复杂，这就是为什么需要`run(..)`utility。如上所示，`yield *foo()`就不需要`run(..)`utility的子实例（比如`run(foo)`）了。
+
+### 代理信息（Delegating Messages）
+
+你可能想知道`yield`代理是如何实现*迭代器*控制和两路信息传递的。通过`yield`代理，仔细观察信息的流入、流出：
+
+```javascript
+function *foo() {
+    console.log( "inside `*foo()`:", yield "B" );
+
+    console.log( "inside `*foo()`:", yield "C" );
+
+    return "D";
+}
+
+function *bar() {
+    console.log( "inside `*bar()`:", yield "A" );
+
+    // `yield`-delegation!
+    console.log( "inside `*bar()`:", yield *foo() );
+
+    console.log( "inside `*bar()`:", yield "E" );
+
+    return "F";
+}
+
+var it = bar();
+
+console.log( "outside:", it.next().value );
+// outside: A
+
+console.log( "outside:", it.next( 1 ).value );
+// inside `*bar()`: 1
+// outside: B
+
+console.log( "outside:", it.next( 2 ).value );
+// inside `*foo()`: 2
+// outside: C
+
+console.log( "outside:", it.next( 3 ).value );
+// inside `*foo()`: 3
+// inside `*bar()`: D
+// outside: E
+
+console.log( "outside:", it.next( 4 ).value );
+// inside `*bar()`: 4
+// outside: F
+```
+
+特别关注一下`it.next(3)`调用后的处理步骤：
+
+1. 值`3`被传入`*foo()`内（通过`*bar()`内的`yield`代理）等待的`yield "C"`表达式。
+2. 之后`*foo()`调用`return "D"`，但这个值并没有返回给外面的`it.next(3)`调用。
+3. 而是`D`值返回作为`*bar()`内等待的`yield *foo()`表达式的结果
 
 
 
