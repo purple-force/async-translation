@@ -1335,8 +1335,194 @@ console.log( "outside:", it.next( 4 ).value );
 特别关注一下`it.next(3)`调用后的处理步骤：
 
 1. 值`3`被传入`*foo()`内（通过`*bar()`内的`yield`代理）等待的`yield "C"`表达式。
-2. 之后`*foo()`调用`return "D"`，但这个值并没有返回给外面的`it.next(3)`调用。
-3. 而是`D`值返回作为`*bar()`内等待的`yield *foo()`表达式的结果
+2. 之后`*foo()`调用`return "D"`，但这个值并没有返回给外面的`it.next(3)`。
+3. 反而，`D`值返回作为`*bar()`内等待的`yield *foo()`表达式的结果--当`*foo()`被穷尽时，这种`yield`代理表达本质上已经被暂停了。因此`*bar()`内的`"D"`最终被打印出来了。
+4. `yield "E"`在`*bar()`内部被调用，`E`值被yield到外部，作为`it.next(3)`调用的结果。
+
+从外部`迭代器`（`it`）的角度来看，控制初始生成器和代理生成器似乎没什么区别。
+
+事实上，`yield`代理甚至没有必要定向到另一个生成器，可以只定向到一个非生成器、通用`iterable`。比如：
+
+```javascript
+function *bar() {
+    console.log( "inside `*bar()`:", yield "A" );
+
+    // `yield`-delegation to a non-generator!
+    console.log( "inside `*bar()`:", yield *[ "B", "C", "D" ] );
+
+    console.log( "inside `*bar()`:", yield "E" );
+
+    return "F";
+}
+
+var it = bar();
+
+console.log( "outside:", it.next().value );
+// outside: A
+
+console.log( "outside:", it.next( 1 ).value );
+// inside `*bar()`: 1
+// outside: B
+
+console.log( "outside:", it.next( 2 ).value );
+// outside: C
+
+console.log( "outside:", it.next( 3 ).value );
+// outside: D
+
+console.log( "outside:", it.next( 4 ).value );
+// inside `*bar()`: undefined
+// outside: E
+
+console.log( "outside:", it.next( 5 ).value );
+// inside `*bar()`: 5
+// outside: F
+```
+
+注意下这个例子和前一个例子中信息的接收和报告的区别。
+
+最不可思议的是，`array`的默认*迭代器*不关心通过`next(..)`调用传入的任何信息，因此值`2`，`3`和`4`会被忽略。另外，因为那个*迭代器*没有显式的`return`值（不像之前的`*foo()`），当结束的时候，`yield *`表达式获得一个`undefined`。
+
+#### 也代理异常！（Exceptions Delegated, Too!）
+
+与`yield`代理两路透明传值一样，错误/异常也是两路传值的：
+
+```javascript
+function *foo() {
+    try {
+        yield "B";
+    }
+    catch (err) {
+        console.log( "error caught inside `*foo()`:", err );
+    }
+
+    yield "C";
+
+    throw "D";
+}
+
+function *bar() {
+    yield "A";
+
+    try {
+        yield *foo();
+    }
+    catch (err) {
+        console.log( "error caught inside `*bar()`:", err );
+    }
+
+    yield "E";
+
+    yield *baz();
+
+    // note: can't get here!
+    yield "G";
+}
+
+function *baz() {
+    throw "F";
+}
+
+var it = bar();
+
+console.log( "outside:", it.next().value );
+// outside: A
+
+console.log( "outside:", it.next( 1 ).value );
+// outside: B
+
+console.log( "outside:", it.throw( 2 ).value );
+// error caught inside `*foo()`: 2
+// outside: C
+
+console.log( "outside:", it.next( 3 ).value );
+// error caught inside `*bar()`: D
+// outside: E
+
+try {
+    console.log( "outside:", it.next( 4 ).value );
+}
+catch (err) {
+    console.log( "error caught outside:", err );
+}
+// error caught outside: F
+```
+
+这段代码中有些东西需要注意：
+
+1. 当调用`it.throw(2)`时，会将错误信息`2`发送给`*bar()`，`*bar()`会将其代理给`*foo()`，之后`*foo()` `catch`它并处理。之后`yield "C"`将`C`返回作为`it.throw(2)`调用的返回`value`。
+2. `*foo()`内部下一个`throw`抛出的`"D"`值传播到`*bar()`中，`*bar()` `catch`它并处理。之后`yield "E"`返回`E`作为`it.next(3)`调用的返回`value`。
+3. 之后，`*baz()` `throw`出的异常没有在`*bar()`中捕获--尽管我们确实在外面`catch`它--因此，`*baz()`和`*bar()`都被设为完成状态。这段代码之后，你可能无法利用随后的`next(..)`调用获得`"G"`值--它们只会简单地返回`undefined`作为`value`。
+
+### 代理异步（Delegating Asynchrony）
+
+让我们回到早先的多个序列化Ajax请求的`yield`代理例子：
+
+```javascript
+function *foo() {
+    var r2 = yield request( "http://some.url.2" );
+    var r3 = yield request( "http://some.url.3/?v=" + r2 );
+
+    return r3;
+}
+
+function *bar() {
+    var r1 = yield request( "http://some.url.1" );
+
+    var r3 = yield *foo();
+
+    console.log( r3 );
+}
+
+run( bar );
+```
+
+我们只是简单地在`*bar()`内部调用`yield *foo()`，而不是`yield run(foo)`。
+
+在这一例子的前一版本中，Promise机制（由`run(..)`控制）用来传递`*foo()`内`return r3`的值给`*bar()`内的局部变量`r3`。现在，现在，那个值通过`yield *`机制直接返回。
+
+除此之外，行为完全一致。
+
+### 代理“递归”（Delegating "Recursion"）
+
+当然，`yield`代理能够跟踪尽可能多的代理步骤。你甚至可以对异步的生成器“递归”--生成器`yield`代理给自己--使用`yield`代理：
+
+```javascript
+function *foo(val) {
+    if (val > 1) {
+        // generator recursion
+        val = yield *foo( val - 1 );
+    }
+
+    return yield request( "http://some.url/?v=" + val );
+}
+
+function *bar() {
+    var r1 = yield *foo( 3 );
+    console.log( r1 );
+}
+
+run( bar );
+```
+
+**注意：** `run(..)` utility本该以`run(foo,3)`的形式调用，因为它支持附加参数，用来传递给生成器的初始化过程。然而，这里我们用了没有参数的`*bar()`，来突出`yield *`的灵活性。
+
+那段代码遵循什么执行步骤？坚持住，细节描述有点复杂：
+
+1. `run(bar)`启动`*bar()`生成器。
+2. `foo(3)`创建一个`*foo(3)`的*迭代器*，传入`3`作为`val`的值。
+3. 因为`3>1`，`foo(2)`创建了另一个*迭代器*，传入`2`作为`val`的值。
+4. 因为`2>1`，`foo(1)`创建了另一个*迭代器*，传入`1`作为`val`的值。
+5. `1>1`是`false`，因此下次以值`1`调用`request(..)`，获得第一个Ajax调用返回的promise。
+6. 那个promise被`yield`出来，返回到`*foo(2)`生成器实例。
+7. `yield *`将那个promise传回到`*foo(3)`生成器实例。另一个`yield *`将promise传出给`*bar()`生成器实例。再一次，另一个`yield *`将promise传出给`run()` utility，它会等待那个promise（第一个Ajax请求）解析。
+8. 当promise解析后，它的fulfillment信息
+
+
+
+
+
+
 
 
 
