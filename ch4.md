@@ -115,7 +115,7 @@ res.value;      // 42
 
 再说一次，为什么我们需要这种完全不直接的*迭代器（iterator）*对象来控制生成器呢，原因还不是很明显。我们会搞清楚的，我保证。
 
-#### 迭代信息传递（Iteration Messaging） 
+#### 迭代信息传递（Iteration Messaging）
 
 除了接收实参和返回值，生成器内建有更强大的输入/输出信息传递能力，通过`yield`和`next(..)`。
 
@@ -565,7 +565,7 @@ function *something() {
         yield nextVal;
     }
 }
-``` 
+```
 
 **注意：** 正常来说，`while..true`循环包含在JS程序中是一件很糟糕的事，至少在没有`break`或`return`时是如此，因为会永远同步运行，阻塞/锁死浏览器UI。然而，在生成器中，如果有`yield`则完全没关系，因为生成器会在每次迭代时暂停，`yield`回主程序或者事件轮询队列。简单点，“生成器把`while..true`带回了JS编程！”
 
@@ -1182,7 +1182,7 @@ function bar() {
 
 **注意：** 对编程而言，抽象也不见得总是好的--很多时候，为了简洁而增加了代码的复杂度。但在这个例子中，我认为generator+Promise异步代码比其它方案更好。总之一句话，关注特定的情形，为你和你的团队做出合理的决定。
 
-## 生成器代理（Generator Delegation）
+## 生成器委托（Generator Delegation）
 
 在前一节中，我们展示了从生成器内部调用普通函数，以及为什么抽离实现细节是个有用的技术（像异步Promise流）。但采用普通函数的主要缺点是必须遵循不同函数规则，这意味着无法像生成器一样使用`yield`来暂停函数自身。
 
@@ -1210,7 +1210,7 @@ run( bar );
 
 通过使用`run(..)` utility，我们在`*bar()`内部运行`*foo()`。此处，我们利用了这一事实，即早先定义的`run(..)`返回一个promise，当该生成器运行直至结束（或者发生错误）时，该promise得到解析。因此，如果我们`yield`出另一个`run(..)`调用生成的promise给`run(..)`实例，它会自动暂停`*bar()`直至`*foo()`完成。
 
-但是有个更好的方法来整合`*bar()`内的`*foo()`调用，称为`yield`代理。`yield`代理的特殊语法是：`yield * _`（注意多出的`*`）。在我们看它如何在之前例子中工作之前，先看一个简单点的场景：
+但是有个更好的方法来整合`*bar()`内的`*foo()`调用，称为`yield`委托。`yield`委托的特殊语法是：`yield * _`（注意多出的`*`）。在我们看它如何在之前例子中工作之前，先看一个简单点的场景：
 
 ```javascript
 function *foo() {
@@ -1240,11 +1240,11 @@ it.next().value;    // `*foo()` finished
 
 **注意：** 类似于本章早些时候的注意事项，即为什么我偏爱`function *foo() ..`而不是`function* foo() ..`，同样，我也偏爱--不同于其它大多数相关文档--用`yield *foo()`，而不是`yield* foo()`。`*`的位置纯粹是风格上的喜好，由你自己决定。但我觉得风格一致比较有吸引力。
 
-`yield *foo()`代理是如何工作的呢？
+`yield *foo()`委托是如何工作的呢？
 
-首先，`foo()`调用创建了一个*迭代器*。之后，`yield *`代理/转移*迭代器*实例的控制权（当前`*bar()`生成器的）给另一个`*foo()`*迭代器*。
+首先，`foo()`调用创建了一个*迭代器*。之后，`yield *`委托/转移*迭代器*实例的控制权（当前`*bar()`生成器的）给另一个`*foo()`*迭代器*。
 
-因此，前两个`it.next()`调用控制`*bar()`，但是当进行第三个`it.next()`调用时，`*foo()`启动了，现在我们控制`foo()`而不是`*bar()`了。这就是称为代理的原因--`*bar()`将自己迭代的控制权代理给`*foo()`。
+因此，前两个`it.next()`调用控制`*bar()`，但是当进行第三个`it.next()`调用时，`*foo()`启动了，现在我们控制`foo()`而不是`*bar()`了。这就是称为委托的原因--`*bar()`将自己迭代的控制权委托给`*foo()`。
 
 一旦`it`*迭代器*控制迭代完整个`*foo()`*迭代器*，就会自动返回到`*bar()`控制之中。
 
@@ -1272,11 +1272,11 @@ run( bar );
 
 和早先版本唯一的不同是采用了`yield *foo()`，而不是之前的`yield run(foo)`
 
-**注意：** `yield *` yield出迭代控制权，而不是生成器的控制权；当你激活`*foo()`生成器时，`yield`代理到它的*迭代器*。但实际上也可以`yield`代理任何`iterable`，`yield *[1,2,3]`会处理`[1,2,3]`的默认*迭代器*。
+**注意：** `yield *` yield出迭代控制权，而不是生成器的控制权；当你激活`*foo()`生成器时，`yield`委托到它的*迭代器*。但实际上也可以`yield`委托任何`iterable`，`yield *[1,2,3]`会处理`[1,2,3]`的默认*迭代器*。
 
-### 为什么代理？（Why Delegation?）
+### 为什么委托？（Why Delegation?）
 
-`yield`代理的主要目的是组织代码，那样的话就和普通的函数调用没什么区别了。
+`yield`委托的主要目的是组织代码，那样的话就和普通的函数调用没什么区别了。
 
 假设两个模块分别提供了`foo()`和`bar()`方法，`bar()`调用`foo()`。
 分开的原因通常是为合理的代码组织考虑，即可能在不同的函数中调用它们。比如，可能有些时候，`foo()`是单独调用的，有时是`bar()`调用`foo()`。
@@ -1285,9 +1285,9 @@ run( bar );
 
 如果`*foo()`的步骤是异步的，手动方法可能特别复杂，这就是为什么需要`run(..)`utility。如上所示，`yield *foo()`就不需要`run(..)`utility的子实例（比如`run(foo)`）了。
 
-### 代理信息（Delegating Messages）
+### 委托信息（Delegating Messages）
 
-你可能想知道`yield`代理是如何实现*迭代器*控制和两路信息传递的。通过`yield`代理，仔细观察信息的流入、流出：
+你可能想知道`yield`委托是如何实现*迭代器*控制和两路信息传递的。通过`yield`委托，仔细观察信息的流入、流出：
 
 ```javascript
 function *foo() {
@@ -1334,14 +1334,14 @@ console.log( "outside:", it.next( 4 ).value );
 
 特别关注一下`it.next(3)`调用后的处理步骤：
 
-1. 值`3`被传入`*foo()`内（通过`*bar()`内的`yield`代理）等待的`yield "C"`表达式。
+1. 值`3`被传入`*foo()`内（通过`*bar()`内的`yield`委托）等待的`yield "C"`表达式。
 2. 之后`*foo()`调用`return "D"`，但这个值并没有返回给外面的`it.next(3)`。
-3. 反而，`D`值返回作为`*bar()`内等待的`yield *foo()`表达式的结果--当`*foo()`被穷尽时，这种`yield`代理表达本质上已经被暂停了。因此`*bar()`内的`"D"`最终被打印出来了。
+3. 反而，`D`值返回作为`*bar()`内等待的`yield *foo()`表达式的结果--当`*foo()`被穷尽时，这种`yield`委托表达本质上已经被暂停了。因此`*bar()`内的`"D"`最终被打印出来了。
 4. `yield "E"`在`*bar()`内部被调用，`E`值被yield到外部，作为`it.next(3)`调用的结果。
 
-从外部`迭代器`（`it`）的角度来看，控制初始生成器和代理生成器似乎没什么区别。
+从外部`迭代器`（`it`）的角度来看，控制初始生成器和委托生成器似乎没什么区别。
 
-事实上，`yield`代理甚至没有必要定向到另一个生成器，可以只定向到一个非生成器、通用`iterable`。比如：
+事实上，`yield`委托甚至没有必要定向到另一个生成器，可以只定向到一个非生成器、通用`iterable`。比如：
 
 ```javascript
 function *bar() {
@@ -1383,9 +1383,9 @@ console.log( "outside:", it.next( 5 ).value );
 
 最不可思议的是，`array`的默认*迭代器*不关心通过`next(..)`调用传入的任何信息，因此值`2`，`3`和`4`会被忽略。另外，因为那个*迭代器*没有显式的`return`值（不像之前的`*foo()`），当结束的时候，`yield *`表达式获得一个`undefined`。
 
-#### 也代理异常！（Exceptions Delegated, Too!）
+#### 也委托异常！（Exceptions Delegated, Too!）
 
-与`yield`代理两路透明传值一样，错误/异常也是两路传值的：
+与`yield`委托两路透明传值一样，错误/异常也是两路传值的：
 
 ```javascript
 function *foo() {
@@ -1450,13 +1450,13 @@ catch (err) {
 
 这段代码中有些东西需要注意：
 
-1. 当调用`it.throw(2)`时，会将错误信息`2`发送给`*bar()`，`*bar()`会将其代理给`*foo()`，之后`*foo()` `catch`它并处理。之后`yield "C"`将`C`返回作为`it.throw(2)`调用的返回`value`。
+1. 当调用`it.throw(2)`时，会将错误信息`2`发送给`*bar()`，`*bar()`会将其委托给`*foo()`，之后`*foo()` `catch`它并处理。之后`yield "C"`将`C`返回作为`it.throw(2)`调用的返回`value`。
 2. `*foo()`内部下一个`throw`抛出的`"D"`值传播到`*bar()`中，`*bar()` `catch`它并处理。之后`yield "E"`返回`E`作为`it.next(3)`调用的返回`value`。
 3. 之后，`*baz()` `throw`出的异常没有在`*bar()`中捕获--尽管我们确实在外面`catch`它--因此，`*baz()`和`*bar()`都被设为完成状态。这段代码之后，你可能无法利用随后的`next(..)`调用获得`"G"`值--它们只会简单地返回`undefined`作为`value`。
 
-### 代理异步（Delegating Asynchrony）
+### 委托异步（Delegating Asynchrony）
 
-让我们回到早先的多个序列化Ajax请求的`yield`代理例子：
+让我们回到早先的多个序列化Ajax请求的`yield`委托例子：
 
 ```javascript
 function *foo() {
@@ -1483,9 +1483,9 @@ run( bar );
 
 除此之外，行为完全一致。
 
-### 代理“递归”（Delegating "Recursion"）
+### 委托“递归”（Delegating "Recursion"）
 
-当然，`yield`代理能够跟踪尽可能多的代理步骤。你甚至可以对异步的生成器“递归”--生成器`yield`代理给自己--使用`yield`代理：
+当然，`yield`委托能够跟踪尽可能多的委托步骤。你甚至可以对异步的生成器“递归”--生成器`yield`委托给自己--使用`yield`委托：
 
 ```javascript
 function *foo(val) {
@@ -1513,26 +1513,399 @@ run( bar );
 2. `foo(3)`创建一个`*foo(3)`的*迭代器*，传入`3`作为`val`的值。
 3. 因为`3>1`，`foo(2)`创建了另一个*迭代器*，传入`2`作为`val`的值。
 4. 因为`2>1`，`foo(1)`创建了另一个*迭代器*，传入`1`作为`val`的值。
-5. `1>1`是`false`，因此下次以值`1`调用`request(..)`，获得第一个Ajax调用返回的promise。
+5. `1>1`是`false`，因此之后以值`1`调用`request(..)`，获得第一个Ajax调用返回的promise。
 6. 那个promise被`yield`出来，返回到`*foo(2)`生成器实例。
 7. `yield *`将那个promise传回到`*foo(3)`生成器实例。另一个`yield *`将promise传出给`*bar()`生成器实例。再一次，另一个`yield *`将promise传出给`run()` utility，它会等待那个promise（第一个Ajax请求）解析。
-8. 当promise解析后，它的fulfillment信息
+8. 当promise解析后，它的fulfillment信息被发送出去用来恢复`*bar()`，信息通过`yield *`传入到`*foo(3)`实例，之后通过`yield *`传入到`*foo(2)`实例，之后通过`yield *`传入到`*foo(3)`中等待的普通`yield`中。
+9. 现在，第一个调用的Ajax响应立即从`*foo(3)`生成器实例中`return`出来，之后将其返回作为`*foo(2)`实例中`yield *`表达式的结果，并将其赋给局部变量`val`。
+10. 在`*foo(2)`内部，`request(..)`发起了第二个Ajax请求，它的promise被`yield`回`*foo(1)`实例，之后`yield *`将其一路传到`run(..)`（重复第7步）。当promise解析后，第二个Ajax响应一路传回`*foo(2)`生成器实例，赋给局部变量`val`。
+11. 最后，`request(..)`发起了第三个Ajax请求，它的promise返回给`run(..)`，之后它的解析值一路返回，直至被`return`，以便回到`*bar()`中等待的`yield *`表达式。
 
+唷！精神饱受摧残了？你可能想再读几次，之后吃点零食清空下大脑！
 
+## 生成器并发（Generator Concurrency）
 
+如第一章和本章早些时候提到的，两个同时运行的“进程”可以协作式的交叉各自的操作，很多时候能够*yield*出强大的异步表达式。
 
+坦白来讲，早先的多个生成器并发交叉的例子证明了是多么的令人感到混乱。但我们暗示了某些场合，这种能力非常有用。
 
+回想下第一章中的场景，两个不同的同时Ajax响应处理函数需要相互协调，以便数据通信不会造成竞态。我们把响应像这样放入到`res`数组中：
 
+```javascript
+function response(data) {
+    if (data.url == "http://some.url.1") {
+        res[0] = data;
+    }
+    else if (data.url == "http://some.url.2") {
+        res[1] = data;
+    }
+}
+```
 
+但在这一场景中，我们如何并发使用多个生成器呢？
 
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
 
+var res = [];
 
+function *reqData(url) {
+    res.push(
+        yield request( url )
+    );
+}
+```
 
+**注意：** 此处我们打算使用`*reqData(..)`的两个生成器实例，但是和运行两个不同生成器的单个实例没有什么区别；两种方法的思考方式是一致的。一会我们看看两个不同生成器的协调。
 
+我们会使用协调排序，以便`res.push(..)`能够将值以可预料的顺序放置
+，而不是手动地分为`res[0]`和`res[1]`赋值。表达逻辑因此也可以更清晰些。
 
+但实际上该如何编排这种交互呢？首先，让我们手动用Promise实现一下：
 
+```javascript
+var it1 = reqData( "http://some.url.1" );
+var it2 = reqData( "http://some.url.2" );
 
+var p1 = it1.next().value;
+var p2 = it2.next().value;
 
+p1
+.then( function(data){
+    it1.next( data );
+    return p2;
+} )
+.then( function(data){
+    it2.next( data );
+} );
+```
+
+`*reqData(..)`的两个实例都开始发起Ajax请求，之后通过`yield`暂停。之后当`p1`解析后，我们选择恢复第一个实例，之后`p2`的解析结果会重启第二个实例。这样的话，我们用promise编排来确保`res[0]`存放第一个响应，`res[1]`存放第二个响应。
+
+但坦白来讲，这种方式太手动化了，并没有真正让生成器编排它们，这才是强大之处（译者注：指让生成器编排）。让我们换个方式试一下：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
+
+var res = [];
+
+function *reqData(url) {
+    var data = yield request( url );
+
+    // transfer control
+    yield;
+
+    res.push( data );
+}
+
+var it1 = reqData( "http://some.url.1" );
+var it2 = reqData( "http://some.url.2" );
+
+var p1 = it1.next().value;
+var p2 = it2.next().value;
+
+p1.then( function(data){
+    it1.next( data );
+} );
+
+p2.then( function(data){
+    it2.next( data );
+} );
+
+Promise.all( [p1,p2] )
+.then( function(){
+    it1.next();
+    it2.next();
+} );
+```
+
+OK，好一点了（尽管仍然是手动的！），因为现在`*reqData(..)`的两个实例真的并发、独立（至少从第一部分来讲）运行。
+
+在上一个代码中，直到第一个实例完全结束之后，第二个才给出它的数据。但这里，只要各自的响应返回，两个实例都能尽快的接收到数据，之后每个实例为了控制转移目的，作了另一个`yield`。之后通过在`Promise.all([ .. ])`的处理函数中来选择恢复顺序。
+
+不大明显的一点是，由于对称性，这个方法暗含了一种更简单的复用utility形式。我们可以做的更好。假设使用一个称为`runAll(..)`的utility：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
+
+var res = [];
+
+runAll(
+    function*(){
+        var p1 = request( "http://some.url.1" );
+
+        // transfer control
+        yield;
+
+        res.push( yield p1 );
+    },
+    function*(){
+        var p2 = request( "http://some.url.2" );
+
+        // transfer control
+        yield;
+
+        res.push( yield p2 );
+    }
+);
+```
+
+**注意：** 我们没有展示出`runAll(..)`的实现代码，不仅因为太长，而且还是早先实现的`run(..)`逻辑的拓展。因此，作为读者很好的练习补充，试着从`run(..)`演化代码，使其运行原理和想象的`runAll(..)`一样。另外，我的`asynquence`库提供了之前提到了`runner(..)`utility，其内建有这种功能，会在本书的附录A中讨论。
+
+以下是`runAll(..)`内部的运行方式：
+
+1. 第一个生成器获得来自`"http://some.url.1"`的第一个Ajax响应的promise，之后`yield`控制权回到`runAll(..)`utility。
+2. 第二个生成器运行，同样处理`"http://some.url.2"`，`yield`控制权回到`runAll(..)`utility。
+3. 第一个生成器恢复，之后`yield`出它的promise`p1`，这种情况下，`runAll(..)`utility和之前的`run(..)`做的一样，在其内部，等待promise的解析，之后恢复同一个生成器（不是控制权转移！）。当`p1`解析后，`runAll(..)`用解析值再次恢复第一个生成器，之后`res[0]`就被赋了该值。当第一个生成器结束之后，有个隐式的控制权转移。
+4. 第二个生成器恢复，`yield`出promise`p2`，等待其解析。一旦解析，`runAll(..)`以解析值恢复第二个生成器，并且设置`res[1]`。
+
+在这个运行例子中，我们使用了外部变量`res`来保存两个不同Ajax响应的结果--这使得并发协调成为可能。
+
+但进一步扩展下`runAll(..)`，提供一个由多个生成器实例共享的内部变量空间可能更好，比如下面我们称为`data`的空对象。另外，也可以`yield`出非Promise变量，并把它们传递给下一个生成器。
+
+考虑如下：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
+
+runAll(
+    function*(data){
+        data.res = [];
+
+        // transfer control (and message pass)
+        var url1 = yield "http://some.url.2";
+
+        var p1 = request( url1 ); // "http://some.url.1"
+
+        // transfer control
+        yield;
+
+        data.res.push( yield p1 );
+    },
+    function*(data){
+        // transfer control (and message pass)
+        var url2 = yield "http://some.url.1";
+
+        var p2 = request( url2 ); // "http://some.url.2"
+
+        // transfer control
+        yield;
+
+        data.res.push( yield p2 );
+    }
+);
+```
+
+这种形式中，两个生成器不仅协调控制权转移，而且还相互通信，都是通过`data.res`和交换`rul1`和`rul2`值`yield`出的信息。相当强大！
+
+这样的实现也为一种更复杂的称为CSP（通信序列进程，Communicating Sequential Processes）的异步技术充当了概念基础，我们会在本书的附录B中讨论。
+
+## Thunks
+
+迄今为止，我们一直假定生成器`yield`出Promise--通过如`run(..)`的辅助utility让Promise恢复生成器的运行--是用生成器管理异步的最好的方法。说明白点，它就是。
+
+但我们跳过了另一种被广泛接受的模式，因此，为了保证完整性，我们简单看下。
+
+在一般的计算机科学中，有一个很老的、在JS之前的概念，叫"thunk"。就不提它的历史了，在JS中，thunk简单点的表达就是一个调用另一个函数的函数（没有任何参数）。
+
+换句话说，就是用函数定义包装一个函数调用--用它所需的任何参数--来*推迟*调用的执行，包装函数就称为一个thunk。当之后执行thunk时，最终会调用初始的函数。
+
+例如：
+
+```javascript
+function foo(x,y) {
+    return x + y;
+}
+
+function fooThunk() {
+    return foo( 3, 4 );
+}
+
+// later
+
+console.log( fooThunk() );  // 7
+```
+
+因此，同步的thunk相当直接。但要是异步的thunk呢？我们可以简单地扩展thunk定义，允许接收一个回调。
+
+考虑如下：
+
+```javascript
+function foo(x,y,cb) {
+    setTimeout( function(){
+        cb( x + y );
+    }, 1000 );
+}
+
+function fooThunk(cb) {
+    foo( 3, 4, cb );
+}
+
+// later
+
+fooThunk( function(sum){
+    console.log( sum );     // 7
+} );
+```
+
+如你所见，`fooThunk(..)`只期望一个`cb(..)`参数，因为它已经预设有值`3`和`4`（分别对应`x`和`y`），并且准备传给`foo(..)`。thunk只需耐心等待做最后一件事：回调。
+
+然而，你并不想手动实现thunk。因此，让我们实现一种utility来为我们做这种包装工作。
+
+考虑如下：
+
+```javascript
+function thunkify(fn) {
+    var args = [].slice.call( arguments, 1 );
+    return function(cb) {
+        args.push( cb );
+        return fn.apply( null, args );
+    };
+}
+
+var fooThunk = thunkify( foo, 3, 4 );
+
+// later
+
+fooThunk( function(sum) {
+    console.log( sum );     // 7
+} );
+```
+
+**提示：** 此处我们假定初始函数（`foo(..)`）希望回调处在最后的位置，其余任何参数都是在它之前。这是异步JS函数标准中相当常见的“标准”。可以称之为“callback-last style”，如果处于某种原因，你需要处理”callback-first style“的形式，只需在utility中使用`args.unshift(..)`，而不是`args.push(..)`。
+
+之前的`thunkify(..)`实现采用`foo(..)`函数引用和其它任何需要的参数，之后返回thunk本身（`fooThunk(..)`）。然而，这并不是JS中典型的thunk方法。
+
+如果不是太困惑的话，`thunkify(..)`utility会生成一个函数，该函数能生成thunks，而不是`thunkify(..)`直接生成thunks。
+
+哦。。。耶。
+
+考虑如下：
+
+```javascript
+function thunkify(fn) {
+    return function() {
+        var args = [].slice.call( arguments );
+        return function(cb) {
+            args.push( cb );
+            return fn.apply( null, args );
+        };
+    };
+}
+```
+
+主要区别在于额外的`return function() { .. }`层，以下是用法的不同：
+
+```javascript
+var whatIsThis = thunkify( foo );
+
+var fooThunk = whatIsThis( 3, 4 );
+
+// later
+
+fooThunk( function(sum) {
+    console.log( sum );     // 7
+} );
+```
+
+很明显，这段代码暗含的大问题是`whatIsThis`如何称呼。它不是thunk，它会生成thunk。有点像"thunk"“工厂”，似乎对其命名没有个统一的标准。
+
+因此，我的提议是“thunkory”（“thunk”+“factory”）。那么，`thunkify(..)`生成一个thunkory，之后thunkory生成thunks。原因和我第三章提议的`promisory`差不多：
+
+```javascript
+var fooThunkory = thunkify( foo );
+
+var fooThunk1 = fooThunkory( 3, 4 );
+var fooThunk2 = fooThunkory( 5, 6 );
+
+// later
+
+fooThunk1( function(sum) {
+    console.log( sum );     // 7
+} );
+
+fooThunk2( function(sum) {
+    console.log( sum );     // 11
+} );
+```
+
+**注意：** 运行的`foo(..)`期望的回调形式不是“error-first style”。当然，“error-first style”更常见。如果`foo(..)`预期会有某种合理的错误生成，我们可以修改一下，采用错误优先回调。随后的`thunkify(..)`不关心假定的是哪种形式的回调。使用方法上的唯一区别就是`fooThunk1(function(err,sum){..`。
+
+暴露thunkory方法--而不是早先的`thunkify(..)`将中间步骤隐藏起来--似乎增加了不必要的复杂度。但通常而言，在程序开始之前，生成thunkory来包装现有的API方法很有用，当需要thunk的时候，可以传入并调用这些thunkory。两个分开的步骤实现了更清晰的功能分离。
+
+举例如下：
+
+```javascript
+// cleaner:
+var fooThunkory = thunkify( foo );
+
+var fooThunk1 = fooThunkory( 3, 4 );
+var fooThunk2 = fooThunkory( 5, 6 );
+
+// instead of:
+var fooThunk1 = thunkify( foo, 3, 4 );
+var fooThunk2 = thunkify( foo, 5, 6 );
+```
+
+不管你喜欢显式还是隐式地处理thunkory,thunk `fooThunk1(..)`和`fooThunk2(..)`的用法仍然一样。
+
+### s/promise/thunk/
+
+那么，thunk如何处理生成器呢？
+
+通常将thunk比作promise：它们不是直接可以相互取代的，因为在行为上并不对等。相比于裸奔的thunk，Promise功能更强，更值得信任。
+
+但从另一方面来说，它们都可以视作请求一个值，并且都是异步的。
+
+回想下第三章中我们定义的用来promisify函数的utility，称为`Promise.wrap(..)`--我们也可称之为`promisify(..)`！这个Promise 包装utility并不生成Promise；它生成promisory，promisory能够生成Promise。这与讨论的thunkory和thunk完全一致。
+
+为了说明一致性，首先将早先的`foo(..)`例子改为“error-first style”回调：
+
+```javascript
+function foo(x,y,cb) {
+    setTimeout( function(){
+        // assume `cb(..)` as "error-first style"
+        cb( null, x + y );
+    }, 1000 );
+}
+```
+
+现在，我们比较下使用`thunkify(..)`和`promisify(..)`（即第三章中的`Promise.wrap(..)`）：
+
+```javascript
+// symmetrical: constructing the question asker
+var fooThunkory = thunkify( foo );
+var fooPromisory = promisify( foo );
+
+// symmetrical: asking the question
+var fooThunk = fooThunkory( 3, 4 );
+var fooPromise = fooPromisory( 3, 4 );
+
+// get the thunk answer
+fooThunk( function(err,sum){
+    if (err) {
+        console.error( err );
+    }
+    else {
+        console.log( sum );     // 7
+    }
+} );
+
+// get the promise answer
+fooPromise
+.then(
+    function(sum){
+        console.log( sum );     // 7
+    },
+    function(err){
+        console.error( err );
+    }
+);
+```
+
+本质而言，thunkory和promisory都在问一个问题（请求值），thunk `fooThunk`和promise `fooPromise`分别代表问题的未来答案。从那个角度而言，一致性很明显。
+
+记住这些，为了实现异步，`yield` Promise的生成器也可以`yield` thunk。我们所需的只是个更精简的`run(..)` utility（和之前的差不多），
 
 
 
