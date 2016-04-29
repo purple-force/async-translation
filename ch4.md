@@ -1905,7 +1905,348 @@ fooPromise
 
 本质而言，thunkory和promisory都在问一个问题（请求值），thunk `fooThunk`和promise `fooPromise`分别代表问题的未来答案。从那个角度而言，一致性很明显。
 
-记住这些，为了实现异步，`yield` Promise的生成器也可以`yield` thunk。我们所需的只是个更精简的`run(..)` utility（和之前的差不多），
+有这样的想法之后，为了实现异步，`yield` Promise的生成器也可以`yield` thunk。我们所需的只是个更精简的`run(..)` utility（和之前的差不多），不仅能够搜寻并连接到一个`yield`出的Promise，而且能够为`yield`出的thunk提供回调函数。
+
+考虑如下：
+
+```javascript
+function *foo() {
+    var val = yield request( "http://some.url.1" );
+    console.log( val );
+}
+
+run( foo );
+```
+
+在这个例子中，`request(..)`既可以是个返回promise的promisory，又可以是个返回thunk的thunkory。从生成器内部代码逻辑角度而言，我们不关心实现细节，这相当强大！
+
+因此，`request(..)`可以是这样：
+
+```javascript
+// promisory `request(..)` (see Chapter 3)
+var request = Promise.wrap( ajax );
+
+// vs.
+
+// thunkory `request(..)`
+var request = thunkify( ajax );
+```
+
+最后，作为早先`run(..)`utility的thunk式补丁，可能需要如下的逻辑：
+
+```javascript
+// ..
+// did we receive a thunk back?
+else if (typeof next.value == "function") {
+    return new Promise( function(resolve,reject){
+        // call the thunk with an error-first callback
+        next.value( function(err,msg) {
+            if (err) {
+                reject( err );
+            }
+            else {
+                resolve( msg );
+            }
+        } );
+    } )
+    .then(
+        handleNext,
+        function handleErr(err) {
+            return Promise.resolve(
+                it.throw( err )
+            )
+            .then( handleResult );
+        }
+    );
+}
+```
+
+现在，我们的生成器既可以调用promisory `yield` Promise，也可以调用thunkory `yield` thunk，并且无论哪一种情形，`run(..)`都能够处理那个值并且使用它来等待其完成，继而恢复生成器。
+
+由于对称性，这两个方法看起来一致。然而，我们应该指出的是，只有从Promise或者thunk代表能够推进生成器执行的未来值的角度来说，这才是正确的。
+
+从更大角度而言，thunk内部几乎没有任何Promise所具备的可信任性和可组合性保证。在这种特定的生成器异步模式中，使用thunk作为Promise的替身是有效地，但相比于Promise提供的种种好处（见第三章），使用thunk应视为不太理想的方案。
+
+如果可以选择，优先用`yield pr`而不是`yield th`。但让`run(..)`utility可以处理这两种值类型没什么问题。
+
+**提示：** 我的*asynquence*库中的`runner(..)` utility，能够处理Promise，thunk和*asynquence*序列。
+
+## ES6前的生成器（Pre-ES6 Generators）
+
+现在，你很希望相信生成器是异步编程工具箱中一个非常重要的添加项。但它是ES6中新增的语法，意味着你无法像Promise（只是一个新的API）那样polyfill 生成器。那么如果无法忽略ES6前的浏览器，我们如何将生成器引入浏览器中呢？
+
+对于所有ES6中的语法扩展，有些工具--最常用的术语叫转译器，全称转换-编译--可以提供给你ES6语法，并将其转换为对等的（但相当丑陋）ES6前的语法。因此，生成器可以转译为具有同样的行为的代码，能够在ES5或者更低的版本JS中运行。
+
+但怎么转呢？`yield`“魔法”听起来很明显不容易转译。其实在早先的基于闭包的*迭代器*中，我们已经暗示了一种解决方案。
+
+### 手动转换（Manual Transformation）
+
+在我们讨论转译器之前，让我们研究一下手动转译生成器是如何工作的。这不仅仅是个学术活动，也可以帮助你增强对其工作原理的理解。
+
+考虑如下：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
+
+function *foo(url) {
+    try {
+        console.log( "requesting:", url );
+        var val = yield request( url );
+        console.log( val );
+    }
+    catch (err) {
+        console.log( "Oops:", err );
+        return false;
+    }
+}
+
+var it = foo( "http://some.url.1" );
+```
+
+第一点需要注意的是，我们仍然需要一个能被调用的普通`foo()`函数，并且仍然需要返回一个*迭代器*。因此，简单勾画一下非生成器转译：
+
+```javascript
+function foo(url) {
+
+    // ..
+
+    // make and return an iterator
+    return {
+        next: function(v) {
+            // ..
+        },
+        throw: function(e) {
+            // ..
+        }
+    };
+}
+
+var it = foo( "http://some.url.1" );
+```
+
+接下来要关心的是生成器通过暂停它的域/状态来实现其“魔法”,但我们可以用函数闭包来模拟。为理解如何写这些代码，我们首先用状态值注释一下生成器的不同部分：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
+
+function *foo(url) {
+    // STATE *1*
+
+    try {
+        console.log( "requesting:", url );
+        var TMP1 = request( url );
+
+        // STATE *2*
+        var val = yield TMP1;
+        console.log( val );
+    }
+    catch (err) {
+        // STATE *3*
+        console.log( "Oops:", err );
+        return false;
+    }
+}
+```
+
+**注意：** 为了更准确地说明，我们采用临时变量`TMP1`，将`val = yield request..`语句分成两部分。`request(..)`在状态`*1*`时发生，将其完成值赋给变量`val`在状态`*2*`时发生。当将代码转换为它的非生成器对等时，我们需要去掉中间的`TMP1`。
+
+换句话说，`*1*`是开始状态，`*2*`是`request(..)`成功状态，`*3*`是`request(..)`失败状态。你可以想象一下附加的`yield`步骤是如何编码成附加的状态。
+
+回到我们转译的生成器，让我们在闭包中定义一个变量`state`，用来追踪状态：
+
+```javascript
+function foo(url) {
+    // manage generator state
+    var state;
+
+    // ..
+}
+```
+
+现在，在处理状态的闭包中定义一个称为`process(..)`的函数，采用`switch`语句：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
+
+function foo(url) {
+    // manage generator state
+    var state;
+
+    // generator-wide variable declarations
+    var val;
+
+    function process(v) {
+        switch (state) {
+            case 1:
+                console.log( "requesting:", url );
+                return request( url );
+            case 2:
+                val = v;
+                console.log( val );
+                return;
+            case 3:
+                var err = v;
+                console.log( "Oops:", err );
+                return false;
+        }
+    }
+
+    // ..
+}
+```
+
+生成器中的每个状态对应`switch`语句中的`case`。每次需要处理新状态时，就要调用`process(..)`。之后我们会讲下它的工作原理。
+
+对于任何一般的生成器变量申明（`val`），我们将其移至`process(..)`外的`var`声明中，这样可供多次`process(..)`调用使用。但是“块域”变量`err`仅状态`*3*`需要使用，因此我们将其放在块里。
+
+在状态`*1*`时，我们作了`return request(..)`，而不是`yield request(..)`。在终止状态`*2*`中，没有显式的需要`return`，所以只有个简单的`return;`这和`return undefined`一样。在终止状态`*3*`中，有个`return false`，我们能够保存该值。
+
+现在我们需要在*迭代器*内部定义代码，以便能够合适地调用`process(..)`：
+
+```javascript
+function foo(url) {
+    // manage generator state
+    var state;
+
+    // generator-wide variable declarations
+    var val;
+
+    function process(v) {
+        switch (state) {
+            case 1:
+                console.log( "requesting:", url );
+                return request( url );
+            case 2:
+                val = v;
+                console.log( val );
+                return;
+            case 3:
+                var err = v;
+                console.log( "Oops:", err );
+                return false;
+        }
+    }
+
+    // make and return an iterator
+    return {
+        next: function(v) {
+            // initial state
+            if (!state) {
+                state = 1;
+                return {
+                    done: false,
+                    value: process()
+                };
+            }
+            // yield resumed successfully
+            else if (state == 1) {
+                state = 2;
+                return {
+                    done: true,
+                    value: process( v )
+                };
+            }
+            // generator already completed
+            else {
+                return {
+                    done: true,
+                    value: undefined
+                };
+            }
+        },
+        "throw": function(e) {
+            // the only explicit error handling is in
+            // state *1*
+            if (state == 1) {
+                state = 3;
+                return {
+                    done: true,
+                    value: process( e )
+                };
+            }
+            // otherwise, an error won't be handled,
+            // so just throw it right back out
+            else {
+                throw e;
+            }
+        }
+    };
+}
+```
+
+这段代码是如何工作的呢？
+
+1. *对迭代器*`next()`的第一次调用会将生成器从未初始状态转到状态`1`，之后调用`process()`来处理该状态。`request()`的返回值，即Ajax的响应promise，被返回作为`next()`调用的`value`属性值。
+2. 如果Ajax请求成功，第二个`next(..)`调用需要传入Ajax响应值，会将状态切换为`2`.`process(..)`被再次调用（这次需要传入Ajax响应值），从`next(..)`返回的`value`属性就为`undefined`。
+3. 然而，如果Ajax请求失败，应当以error调用`throw(..)`，会将状态从`1`变成`3`（而不是`2`）。`process(..)`再次被调用，这次是以错误值。那个`case`返回`false`，会被设为`throw(..)`调用返回的`value`属性值。
+
+从外部看--它只和*迭代器*交互--这个`foo(..)`普通函数和`*foo(..)`表现的完全一样。因此，我们已经有效地将ES6生成器转译为pre-ES6的兼容代码！
+
+之后，我们可以手动实例化生成器并控制其迭代器--调用`var it = foo("..")`和`it.next(..)`，诸如此类--或者更好的方法，我们可以把它传给之前定义的`run(..)`utility,即`run(foo,"..")`。
+
+### 自动转译（Automatic Transpilation）
+
+之前的手动转译ES6生成器为pre-ES6等价代码练习从概念上教会了我们生成器是如何工作的。但那种转译真的很复杂，并且不好移植到其它生成器。手动实现相当不切实际，会完全消除生成器的好处。
+
+但幸运的是，已经有几个工具库能够将ES6生成器转译成类似我们之前转译的结果。它们不仅为我们做了繁重的工作，而且也处理了我们一带而过的几个复杂问题。
+
+其中一个工具是regenerator([https://facebook.github.io/regenerator/](https://facebook.github.io/regenerator/))，来自Facebook的小folk。
+
+如果我们使用regenerator转译之前的生成器，以下是转译后的代码：
+
+```javascript
+// `request(..)` is a Promise-aware Ajax utility
+
+var foo = regeneratorRuntime.mark(function foo(url) {
+    var val;
+
+    return regeneratorRuntime.wrap(function foo$(context$1$0) {
+        while (1) switch (context$1$0.prev = context$1$0.next) {
+        case 0:
+            context$1$0.prev = 0;
+            console.log( "requesting:", url );
+            context$1$0.next = 4;
+            return request( url );
+        case 4:
+            val = context$1$0.sent;
+            console.log( val );
+            context$1$0.next = 12;
+            break;
+        case 8:
+            context$1$0.prev = 8;
+            context$1$0.t0 = context$1$0.catch(0);
+            console.log("Oops:", context$1$0.t0);
+            return context$1$0.abrupt("return", false);
+        case 12:
+        case "end":
+            return context$1$0.stop();
+        }
+    }, foo, this, [[0, 8]]);
+});
+```
+
+和我们之前的手动版本相比，有一定的相似性，比如`switch`/`case`语句，我们甚至看到了从闭包中抽出的`val`。
+
+当然，有个折中，即regenerator转译需要一个辅助库`regeneratorRuntime`，其中包含了管理通用生成器/*迭代器*的所有复用逻辑。许多那样的样版代码看起来不同于我们的版本，但即使是那样，也能看到相关的概念，比如用来追踪生成器状态的`context$1$0.next = 4`。
+
+主要的挑战是，生成器不仅仅限于ES6+环境中。一旦你理解了概念，就可以在代码中使用它们，采用工具来将其转译成旧环境兼容的代码。
+
+相比pre-ES6 Promise，只需用个`Promise` API polyfill，这里的工作量显然更多，但努力是完全值得的，因为生成器能够以合理、有意义、看起来同步、序列化的方式更好地表达异步流控制。
+
+一旦你迷上了生成器，你就再也不想回到异步的意大利面条式的回调地狱了！
+
+## 回顾（Review）
+
+生成器是一种新的ES6函数类型，它不是像普通函数那样运行直至结束的。而是，生成器可以在中间过程（完全保持自身状态）暂停，并且之后可以从暂停的地方恢复。
+
+这种暂停/恢复的切换是协作式的，而不是抢占式的。这意味着生成器有独有的能力暂停自己（采用`yield`关键字），之后控制生成器的*迭代器*能够恢复生成器（通过`next(..)`）。
+
+`yield`/`next()`对不仅仅是一种控制机制，实际上还是一种两路信息传递机制。本质上，`yield..`表达式暂停生成器并等待值，下一个`next(..)`调用传回一个值（或者隐式的`undefined`）来恢复生成器。
+
+生成器关于异步流控制的关键优点是，生成器内部的代码能够以同步/序列化的方式表示任务序列。技巧在于我们将异步隐藏到`yield`关键字之后了--将异步移到生成器的*迭代器*控制的代码部分。
+
+换句话说，生成器实现了异步代码的序列化、同步化和阻塞性，这可以让我们的大脑能够更自然地推演代码，解决基于回调的异步的两大缺点之一。
+
 
 
 
