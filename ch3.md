@@ -1576,7 +1576,6 @@ Promise.map( [p1,p2,p3], function(pr,done){
 ```
 
 ## Promise API 回顾（Promise API Recap）
------
 
 让我们回顾一下本章中零零碎碎展开的ES6 `Promise` API。
 
