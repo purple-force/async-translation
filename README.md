@@ -5,5 +5,7 @@ a translation paper for the async part of You don't know JS:async &amp; performa
 
 觉得讲得挺不错的，与大家共享。
 
-
-有些地方翻译的不是很好，希望大家多提提意见。后续会不断对其进行修改，完善。
++ [第一章：异步：现在 & 以后](./ch1.md)
++ [第二章：回调](./ch2.md)
++ [第三章：Promises](./ch3.md)
++ [第四章：生成器](./ch4.md)
